@@ -166,3 +166,27 @@ def test_kickers_are_not_silently_zeroed():
     skill, dst = sleeper.index_points(rows)
     assert skill[(sleeper.norm("Foot Baller"), "K")] == pytest.approx(9.2)
     assert sleeper.score_line(rows[0]["stats"]) == 0.0    # the trap this guards
+
+
+def test_the_full_strength_sentinel_blends_both_sources_too():
+    """Week 99 is no real week -- it is the optimizer's "no byes, no absences"
+    sentinel behind the full-strength lineup and the letter grades. Before ESPN's
+    forward grid existed, nothing answered for it but Sleeper, so the graded board
+    and the EV board quietly believed different sources. Both now average their
+    own weeks and combine under the same rule.
+
+    ESPN's zeros are dropped: it writes 0.0 for a bye and for a week it expects a
+    player to miss, while Sleeper simply omits those weeks. Averaging the zeros in
+    would answer a different question than "what is he worth at full strength".
+    """
+    p = {"weekly": {4: 20.0, 5: 0.0, 6: 20.0},      # 0.0 is his bye
+         "sleeper": {4: 10.0, 6: 10.0}, "rate": 99.0, "factors": {}}
+    try:
+        config.PROJECTION_SOURCE = "espn"
+        assert roster_strength.player_week(p, 99) == pytest.approx(20.0)
+        config.PROJECTION_SOURCE = "sleeper"
+        assert roster_strength.player_week(p, 99) == pytest.approx(10.0)
+        config.PROJECTION_SOURCE = "blend"
+        assert roster_strength.player_week(p, 99) == pytest.approx(15.0)
+    finally:
+        config.PROJECTION_SOURCE = "blend"

@@ -27,7 +27,9 @@ caches once, which is enough to reprice a week in progress.
 
 from __future__ import annotations
 
+import json
 import time
+from pathlib import Path
 
 import requests
 
@@ -89,6 +91,76 @@ def fetch(season: int | None = None) -> dict:
 # --------------------------------------------------------------------------
 # tidying
 # --------------------------------------------------------------------------
+# --- The forward grid --------------------------------------------------------
+# ESPN's default payload carries only the current week's projection, which is why
+# this model spent weeks believing ESPN had nothing to say about week 9. It does:
+# pass scoringPeriodId=N and mRoster returns EVERY rostered player's week-N
+# projection, maintained the same way the current week is. A.J. Brown, on IR,
+# reads 0.0 through week 6 and about 10 from week 7 -- ESPN models his return.
+# Season-enders (Tank Dell, Jonathon Brooks) read 0.0 straight through. Byes are
+# 0.0 in the right week. None of that is true of the SEASON total, which is cut
+# in preseason and never revised; only the weekly rows are live.
+#
+# The cost is one 2.4 MB call per week, so pulling all fifteen remaining weeks is
+# ~37 MB. The publish job runs every 15 minutes during games, and repeating that
+# there would be several GB a day against ESPN for numbers that barely move --
+# week 12's projection is not news on a Sunday afternoon. So the grid is cached
+# and refreshed on its own slow clock; the CURRENT week still comes fresh with
+# every run, through the ordinary fetch().
+GRID_TTL_SECONDS = 6 * 3600
+
+
+def weekly_grid(season: int, weeks: list[int]) -> dict[int, dict[int, float]]:
+    """player_id -> {week: ESPN's own projection for that week}.
+
+    One mRoster read per week. Weeks ESPN has no row for are simply absent, which
+    is what the caller wants: absent means "no opinion", not "zero points".
+    """
+    grid: dict[int, dict[int, float]] = {}
+    for w in weeks:
+        raw = get("mRoster", season, scoringPeriodId=w)
+        for team in raw.get("teams", []):
+            for entry in (team.get("roster") or {}).get("entries", []):
+                player = entry["playerPoolEntry"]["player"]
+                v = _stat(player, 1, 1, season, week=w)
+                if v is not None:
+                    grid.setdefault(player["id"], {})[w] = float(v)
+    return grid
+
+
+def load_grid(path, season: int, weeks: list[int], now: float,
+              ttl: int = GRID_TTL_SECONDS) -> tuple[dict[int, dict[int, float]], str]:
+    """The cached forward grid, refetched when it is stale, thin, or absent.
+
+    Returns (grid, why) -- `why` says which happened, so the run's log can show
+    whether these numbers came off the wire or off disk.
+    """
+    cached, age = None, None
+    try:
+        blob = json.loads(Path(path).read_text())
+        if blob.get("season") == season:
+            cached = {int(pid): {int(w): float(v) for w, v in wk.items()}
+                      for pid, wk in blob["grid"].items()}
+            age = now - float(blob.get("fetched_at") or 0)
+    except (OSError, ValueError, KeyError):
+        cached = None
+
+    if cached is not None and age is not None and age < ttl:
+        # A cache from before a trade or a waiver claim can be missing the players
+        # who arrived since. Covering most of them is fine -- the stragglers fall
+        # through to Sleeper -- but a grid that has gone thin is not worth keeping.
+        covered = sum(1 for wk in cached.values() if any(w in wk for w in weeks))
+        if covered >= 100:
+            return cached, f"cached {age / 3600:.1f}h old"
+
+    grid = weekly_grid(season, weeks)
+    Path(path).write_text(json.dumps(
+        {"season": season, "fetched_at": now, "weeks": weeks,
+         "grid": {str(k): {str(w): round(v, 2) for w, v in d.items()}
+                  for k, d in grid.items()}}))
+    return grid, "refetched"
+
+
 def bye_weeks(proteams: dict) -> dict[int, int]:
     """proTeamId -> bye week (0 = unknown / already passed in ESPN's data)."""
     teams = proteams.get("settings", {}).get("proTeams", [])

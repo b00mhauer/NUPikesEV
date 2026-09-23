@@ -77,7 +77,11 @@ jobs:
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add data/ev_history.json data/projection_log.json
+          # espn_weekly.json is the cached forward grid. It MUST ride back into
+          # the repo: the runner starts from a fresh checkout every time, so an
+          # uncommitted cache is no cache at all and each run would pull all
+          # ~37 MB of it again, including the 15-minute runs during games.
+          git add data/ev_history.json data/projection_log.json data/espn_weekly.json
           if git diff --cached --quiet; then
             echo "nothing moved"
           else

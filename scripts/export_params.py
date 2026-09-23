@@ -19,7 +19,6 @@ import json
 import os
 import sys
 import time
-import time
 from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
@@ -59,6 +58,31 @@ def build(season: int) -> dict:
 
     all_players = [p for team in rosters.values() for p in team]
     scale = roster_strength.rate_scale(all_players, current)
+
+    # ESPN's forward grid. The default payload carries the current week only,
+    # which is why this model ran on Sleeper alone past the current week -- ask
+    # for scoringPeriodId=N and ESPN answers for week N, injuries and byes and
+    # all. Merging it into p["weekly"] is the whole wiring: player_week() already
+    # prefers ESPN's published week and blends it with Sleeper where both speak,
+    # so this turns a one-week ensemble into a rest-of-season one.
+    #
+    # One 2.4 MB call per week, so the whole grid is ~37 MB -- far too much for a
+    # job that runs every 15 minutes during games. It is cached on its own slow
+    # clock, and a live week suppresses the refresh entirely: the only numbers
+    # moving on a Sunday are this week's, and those come fresh every run.
+    ahead = [w for w in range(current, reg_weeks + 1)]
+    playing = any(w["state"] == "live" for w in weeks)
+    grid, why = espn_live.load_grid(
+        REPO / "data" / "espn_weekly.json", season, ahead, time.time(),
+        ttl=24 * 3600 if playing else espn_live.GRID_TTL_SECONDS)
+    filled = 0
+    for p in all_players:
+        for w, v in (grid.get(p["player_id"]) or {}).items():
+            if w not in p["weekly"]:
+                p["weekly"][w] = v
+                filled += 1
+    print(f"[params] espn forward grid: {why}, {filled} player-weeks merged "
+          f"across weeks {ahead[0]}-{ahead[-1]}")
 
     # Matchup shape for the weeks ESPN does not project (everything after this
     # one). If Sleeper is unreachable or has renamed something, every factor

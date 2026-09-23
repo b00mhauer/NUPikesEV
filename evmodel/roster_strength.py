@@ -47,22 +47,46 @@ def rate_scale(players: list[dict], week: int) -> float:
     return min(max(mid, RATE_SCALE_BOUNDS[0]), RATE_SCALE_BOUNDS[1])
 
 
+def _mean(values) -> float | None:
+    """Average, or None for an empty run -- None means "no opinion", not zero."""
+    vals = list(values)
+    return sum(vals) / len(vals) if vals else None
+
+
+def _combine(espn: float, sleeper_: float) -> float:
+    """The one place PROJECTION_SOURCE is applied, so every path agrees."""
+    src = config.PROJECTION_SOURCE
+    if src == "espn":
+        return espn
+    if src == "sleeper":
+        return sleeper_
+    w = config.BLEND_WEIGHTS
+    tot = w["espn"] + w["sleeper"]
+    return (w["espn"] * espn + w["sleeper"] * sleeper_) / tot if tot else espn
+
+
 def player_week(p: dict, week: int, scale: float = 1.0) -> float:
     """What this player is worth in this week.
 
-    NOTHING here reads p["rate"]. That number is ESPN's season projection spread
-    over the weeks a player can still play, and ESPN's season projection is a
-    PRESEASON figure that is never marked down: Jaxson Dart, ruled OUT, carries a
-    236.6 season total while ESPN's own week projection for him reads 0.00. Using
-    it for the weeks ESPN does not publish -- which is every week but the current
-    one, i.e. most of the season -- spreads an August guess across a changed team.
+    NOTHING here reads p["rate"]. That number is ESPN's SEASON projection spread
+    over the weeks a player can still play, and the season projection is a
+    preseason figure that is never marked down: Jaxson Dart, ruled OUT, carries a
+    236.6 season total while ESPN's own week projection for him reads 0.00.
 
-    So the order is live numbers only: ESPN's published week where it exists
-    (maintained, already in league scoring), then Sleeper's line for that week,
-    then that player's own Sleeper average for a week Sleeper skipped. Where both
-    sources have a number, config.PROJECTION_SOURCE picks "espn", "sleeper" or
-    "blend". A player neither source can price falls through to 0.0, which makes
-    the optimizer skip him and price the slot at replacement.
+    ESPN's WEEKLY projections are the opposite -- maintained all season, injuries
+    and byes and all -- and they exist for every week, not just the current one.
+    They only look scarce because the default payload carries the current week
+    alone; ask for scoringPeriodId=N and week N comes back. espn_live.weekly_grid
+    pulls the lot and export merges them into p["weekly"], so by the time a player
+    reaches this function both sources usually have a live number for every week
+    left in the season.
+
+    The order: ESPN's week where it exists, then Sleeper's line for that week,
+    then -- for a bye, an unposted week, or the playoff sentinel -- each source's
+    own average over the weeks it does carry. Wherever both speak,
+    config.PROJECTION_SOURCE picks "espn", "sleeper" or "blend". A player neither
+    source can price falls through to 0.0, which makes the optimizer skip him and
+    price the slot at replacement rather than at an August guess.
     """
     del scale       # vestigial: it lifted the season RATE onto the weekly scale,
                     # and nothing here reads the rate any more. Kept in the
@@ -73,31 +97,40 @@ def player_week(p: dict, week: int, scale: float = 1.0) -> float:
 
     # Both sources have a live number for this week -> PROJECTION_SOURCE decides.
     if espn_wk is not None and sleep_wk is not None:
-        src = config.PROJECTION_SOURCE
-        if src == "espn":
-            return float(espn_wk)
-        if src == "sleeper":
-            return float(sleep_wk)
-        w = config.BLEND_WEIGHTS
-        tot = w["espn"] + w["sleeper"]
-        return ((w["espn"] * float(espn_wk) + w["sleeper"] * float(sleep_wk)) / tot
-                if tot else float(espn_wk))
+        return _combine(float(espn_wk), float(sleep_wk))
 
     if espn_wk is not None:
         return float(espn_wk)
     if sleep_wk is not None:
         return float(sleep_wk)
-    if sl:
-        # Sleeper covers this player but not this week -- a bye, or a week it has
-        # not posted. His own average across the weeks it does carry beats
-        # inventing a number.
-        return sum(sl.values()) / len(sl)
 
-    # Nothing current about him at all. Fall back to the largest weekly figure
-    # ESPN has published, which is maintained; if that is zero or absent we
-    # genuinely do not know, and 0.0 makes the optimizer skip him so the slot is
-    # priced at the streaming line -- the honest treatment of no information.
-    return max((v for v in p["weekly"].values() if v > 0), default=0.0)
+    # Neither source prices THIS week. Either it is a bye, a week one of them has
+    # not posted, or the caller asked for the playoff sentinel -- a week number no
+    # real schedule has, meaning "what is he worth at full strength". Answer with
+    # each source's own average over the weeks it does carry, then combine them the
+    # same way a real week is combined, so the full-strength board and the weekly
+    # board cannot disagree about which source they believe.
+    #
+    # Zeros are dropped from the ESPN side on purpose. ESPN writes 0.0 for a bye
+    # and for a week it expects a player to miss; Sleeper just omits those weeks.
+    # Averaging ESPN's zeros in would quietly answer a different question -- what
+    # he is worth per CALENDAR week, absences included -- and would put a player
+    # returning in week 7 below a replacement who plays every week, in a lineup
+    # that is explicitly about full strength.
+    espn_avg = _mean(v for v in p["weekly"].values() if v > 0)
+    sleep_avg = _mean(sl.values())
+
+    if espn_avg is not None and sleep_avg is not None:
+        return _combine(espn_avg, sleep_avg)
+    if espn_avg is not None:
+        return espn_avg
+    if sleep_avg is not None:
+        return sleep_avg
+
+    # Nothing current about him at all. 0.0 makes the optimizer skip him so the
+    # slot is priced at the streaming line -- the honest treatment of no
+    # information, and never a stale August total.
+    return 0.0
 
 
 # K and D/ST are rostered almost exactly one per team, so a rank-12 line at
