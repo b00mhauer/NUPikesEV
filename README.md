@@ -54,6 +54,21 @@ only when something moved, and thinned to daily after two weeks. Anything
 reconstructed after the fact is drawn dashed and labelled; a reconstruction is
 not a measurement.
 
+## What's on the page
+
+- **Your team at the top.** Tap any row to claim it and the page remembers; until
+  someone picks, the card cycles the whole league.
+- **What this week is worth.** Not "you are 38% to make the playoffs" but "win
+  Sunday and it is 61%, lose and it is 19% — a $134 swing". It comes from
+  partitioning the same simulated seasons by who won the week, so both sides are
+  consistent with each other and with the headline by construction.
+- **A book.** Spread, total and moneylines in American odds for every matchup,
+  plus season prices — title, playoffs, plaque, win total — on each team. These
+  are **fair odds**: no juice, no hold, so the two sides of a game add to 100%.
+- **The tape.** A sparkline per team and the full line on tap.
+- **A crawl** along the bottom, every team quoted like a stock, with plaque watch
+  and the biggest swing of the week.
+
 ## Privacy — read this before deploying
 
 GitHub Pages on the free tier requires a **public** repository, so this one is

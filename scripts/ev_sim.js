@@ -85,6 +85,15 @@
     });
     var shift = teams.map(function (t) { return post[t.team_id].shift; });
 
+    /* the week in front of us: the first one still undecided. Which side wins it
+       in a given simulated season is worth keeping — it is what "what is Sunday
+       worth" is computed from, without running a second set of seasons. */
+    var pivotWeek = null;
+    params.weeks.forEach(function (wk) {
+      if (pivotWeek === null && wk.state !== "final" && wk.week <= regWeeks) pivotWeek = wk.week;
+    });
+    var pivotIndex = -1;
+
     /* one pass over the calendar: per week, each team is fixed, live or drawn */
     var plan = [];
     params.weeks.forEach(function (wk) {
@@ -116,6 +125,7 @@
           }
         });
       });
+      if (wk.week === pivotWeek) pivotIndex = plan.length;
       plan.push({ mean: mean, sd: sd, playing: playing, pairs: pairs });
     });
 
@@ -125,8 +135,17 @@
     for (var i = 0; i < T; i++) placeCount.push(new Float64Array(T));
 
     var wins = new Float64Array(T), pf = new Float64Array(T);
-    var score = new Float64Array(T), order = new Int32Array(T);
+    var score = new Float64Array(T), order = new Int32Array(T), place = new Int32Array(T);
     var payout = params.payout_usd || {};
+
+    /* conditional on this week: sums and counts, split by who won it */
+    var wonWeek = new Uint8Array(T), playsWeek = new Uint8Array(T);
+    var evWin = new Float64Array(T), evLose = new Float64Array(T);
+    var plyWin = new Float64Array(T), plyLose = new Float64Array(T);
+    var nWin = new Float64Array(T), nLose = new Float64Array(T);
+    if (pivotIndex >= 0) {
+      plan[pivotIndex].pairs.forEach(function (pr) { playsWeek[pr[0]] = 1; playsWeek[pr[1]] = 1; });
+    }
 
     function draw(i, weeks) {
       var tot = 0;
@@ -145,9 +164,11 @@
         }
         for (var g = 0; g < p.pairs.length; g++) {
           var h = p.pairs[g][0], a = p.pairs[g][1];
-          if (score[h] > score[a]) wins[h] += 1;
-          else if (score[a] > score[h]) wins[a] += 1;
+          var homeWon = score[h] > score[a], tied = score[h] === score[a];
+          if (homeWon) wins[h] += 1;
+          else if (!tied) wins[a] += 1;
           else { wins[h] += 0.5; wins[a] += 0.5; }
+          if (w === pivotIndex) { wonWeek[h] = homeWon ? 1 : 0; wonWeek[a] = (!homeWon && !tied) ? 1 : 0; }
         }
       }
 
@@ -170,10 +191,23 @@
 
       placeCount[first][0] += 1; placeCount[second][1] += 1;
       placeCount[third][2] += 1; placeCount[fourth][3] += 1;
-      for (var pl = 5; pl <= T; pl++) placeCount[order[pl - 1]][pl - 1] += 1;
+      place[first] = 1; place[second] = 2; place[third] = 3; place[fourth] = 4;
+      for (var pl = 5; pl <= T; pl++) {
+        placeCount[order[pl - 1]][pl - 1] += 1;
+        place[order[pl - 1]] = pl;
+      }
       shameCount[order[T - 1]] += 1;      /* worst regular-season record */
 
       for (var t2 = 0; t2 < T; t2++) { winSum[t2] += wins[t2]; pfSum[t2] += pf[t2]; }
+
+      if (pivotIndex >= 0) {
+        for (var t3 = 0; t3 < T; t3++) {
+          if (!playsWeek[t3]) continue;
+          var pl = place[t3], cash = payout[String(pl)] || 0, made = pl <= 4 ? 1 : 0;
+          if (wonWeek[t3]) { evWin[t3] += cash; plyWin[t3] += made; nWin[t3] += 1; }
+          else { evLose[t3] += cash; plyLose[t3] += made; nLose[t3] += 1; }
+        }
+      }
     }
 
     var out = teams.map(function (t, i) {
@@ -192,7 +226,13 @@
         p_shame: shameCount[i] / nSims,
         exp_wins: winSum[i] / nSims, exp_pf: pfSum[i] / nSims,
         post_shift: shift[i], post_weight: post[t.team_id].weight,
-        games: post[t.team_id].games
+        games: post[t.team_id].games,
+        stakes: (pivotIndex >= 0 && nWin[i] > 0 && nLose[i] > 0) ? {
+          week: pivotWeek,
+          p_win: nWin[i] / (nWin[i] + nLose[i]),
+          ev_win: evWin[i] / nWin[i], ev_lose: evLose[i] / nLose[i],
+          playoffs_win: plyWin[i] / nWin[i], playoffs_lose: plyLose[i] / nLose[i]
+        } : null
       };
     });
     return { n_sims: nSims, seed: seed || 20260101, teams: out };

@@ -158,6 +158,13 @@ def simulate(params: dict, n_sims: int = 20000, seed: int = 20260101,
 
     wins = np.zeros((n_sims, T))
     pf = np.zeros((n_sims, T))
+    # the week in front of us: the first one still undecided. Whoever wins it in
+    # a given simulated season is worth knowing, so we keep it.
+    pivot_week = next((w["week"] for w in params["weeks"]
+                       if w["state"] != "final"
+                       and w["week"] <= params.get("reg_season_weeks", REG_SEASON_WEEKS)),
+                      None)
+    pivot_wins: dict[int, np.ndarray] = {}
 
     for wk in params["weeks"]:
         if wk["week"] > params.get("reg_season_weeks", REG_SEASON_WEEKS):
@@ -198,6 +205,9 @@ def simulate(params: dict, n_sims: int = 20000, seed: int = 20260101,
             tie = scores[:, h] == scores[:, a]
             wins[:, h] += hw + 0.5 * tie
             wins[:, a] += (~hw & ~tie) + 0.5 * tie
+            if wk["week"] == pivot_week:
+                pivot_wins[m["home"]] = hw
+                pivot_wins[m["away"]] = ~hw & ~tie
 
     # --- seeding: record first, points-for breaks every tie -----------------
     key = wins * 1e7 + pf                      # pf < 1e7, so record dominates
@@ -254,6 +264,12 @@ def simulate(params: dict, n_sims: int = 20000, seed: int = 20260101,
                     for p in range(1, T + 1)])
     ev = p_place @ usd
 
+    # --- what this week is worth -------------------------------------------
+    # The same twenty thousand seasons already contain the answer: split them by
+    # who won the week in front of us and average each side. No second run, and
+    # it is exact rather than an approximation.
+    stakes = _week_stakes(teams, idx, pivot_week, pivot_wins, place, usd)
+
     return {
         "n_sims": n_sims,
         "seed": seed,
@@ -275,10 +291,43 @@ def simulate(params: dict, n_sims: int = 20000, seed: int = 20260101,
                 "post_shift": float(shift[i]),
                 "post_weight": float(post[t["team_id"]]["weight"]),
                 "games": int(post[t["team_id"]]["games"]),
+                "stakes": stakes.get(t["team_id"]),
             }
             for i, t in enumerate(teams)
         ],
     }
+
+
+def _week_stakes(teams, idx, week, pivot_wins, place, usd) -> dict:
+    """Per team: what winning this week is worth against losing it.
+
+    This is the number a league actually argues about — not "you are 38% to make
+    the playoffs" but "win Sunday and it is 61%, lose and it is 19%". Because it
+    partitions one set of simulations rather than running new ones, the two sides
+    are consistent with each other and with the headline by construction.
+    """
+    if week is None or not pivot_wins:
+        return {}
+    pay = usd[place - 1]                      # what each team took home, per season
+    made = place <= 4
+    out = {}
+    for t in teams:
+        won = pivot_wins.get(t["team_id"])
+        if won is None:
+            continue
+        i = idx[t["team_id"]]
+        n_win = int(won.sum())
+        if n_win == 0 or n_win == len(won):   # already decided: no stakes left
+            continue
+        out[t["team_id"]] = {
+            "week": week,
+            "p_win": float(won.mean()),
+            "ev_win": float(pay[won, i].mean()),
+            "ev_lose": float(pay[~won, i].mean()),
+            "playoffs_win": float(made[won, i].mean()),
+            "playoffs_lose": float(made[~won, i].mean()),
+        }
+    return out
 
 
 def load_params(path: str | Path) -> dict:
