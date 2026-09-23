@@ -161,6 +161,12 @@ section{margin-bottom:12px;}
      letter-spacing:.04em;margin:2px 0 5px;}
 .d24 b{font-variant-numeric:tabular-nums;color:var(--text-primary);letter-spacing:0;}
 .d24 b.pos{color:var(--up);} .d24 b.neg{color:var(--down);}
+.rng{display:flex;gap:4px;margin:0 0 4px;}
+.rb{background:var(--surface-2);border:var(--border);border-radius:var(--radius);
+    color:var(--text-muted);font:inherit;font-size:var(--fs-tiny);letter-spacing:.04em;
+    padding:2px 8px;cursor:pointer;}
+.rb.on{color:var(--amber);border-color:var(--amber);}
+.rb.off{opacity:.35;cursor:default;}
 .detail td{background:var(--surface-2);white-space:normal;}
 .dist{display:flex;align-items:flex-end;gap:2px;height:44px;margin:6px 0 4px;}
 .dist i{flex:1;background:var(--grid-strong);border-radius:1px 1px 0 0;min-height:1px;
@@ -444,9 +450,43 @@ function sparkline(tid){
     '<circle class="dot" cx="' + last[0].toFixed(1) + '" cy="' + last[1].toFixed(1) + '" r="1.6"/></svg>';
 }
 
+/* Stock-tape ranges. One selection shared by every open panel -- simpler than
+   per-team state, and switching re-renders the chart in place rather than
+   repainting, so the panel you are reading stays open. NOTE the tape is thinned
+   after 14 days (ev_history.KEEP_DENSE_DAYS), so 1H and 1D are dense while ALL
+   gets sparser the further back you look. */
+var RANGES = [["1H", 3600], ["1D", 86400], ["1W", 604800], ["ALL", null]];
+var chartRange = "ALL";
+
+function windowed(tid, secs){
+  var vals = series(tid, "ev"), at = hist.at || [], recon = hist.recon || [];
+  if(at.length !== vals.length) return {vals: vals, at: at, recon: recon};
+  if(secs === null) return {vals: vals, at: at, recon: recon};
+  var cut = at[at.length - 1] - secs, v = [], a = [], r = [];
+  for(var i = 0; i < vals.length; i++){
+    if(at[i] >= cut){ v.push(vals[i]); a.push(at[i]); r.push(recon[i]); }
+  }
+  return {vals: v, at: a, recon: r};
+}
+
+function rangeButtons(tid){
+  return '<div class="rng">' + RANGES.map(function(pair){
+    var n = windowed(tid, pair[1]).vals.length;
+    var off = n < 2;
+    return '<button type="button" class="rb' + (pair[0] === chartRange ? " on" : "") +
+      (off ? " off" : "") + '" data-range="' + pair[0] + '"' + (off ? " disabled" : "") +
+      ' title="' + (off ? "not enough tape yet" : n + " points") + '">' + pair[0] + "</button>";
+  }).join("") + "</div>";
+}
+
 function chart(tid){
-  var vals = series(tid, "ev"), recon = hist.recon || [], at = hist.at || [];
-  if(vals.length < 2) return '<div class="pt-mono-label">The tape starts filling as the season runs.</div>';
+  var secs = null;
+  RANGES.forEach(function(pr){ if(pr[0] === chartRange) secs = pr[1]; });
+  var w = windowed(tid, secs);
+  var vals = w.vals, recon = w.recon, at = w.at;
+  if(vals.length < 2) return '<div class="pt-mono-label">' + (secs === null ?
+    "The tape starts filling as the season runs." :
+    "Not enough tape in this window yet.") + "</div>";
   var W = 300, H = 120, p = path(vals, W, H, 12);
   var firstLive = recon.indexOf(0); if(firstLive < 0) firstLive = vals.length - 1;
   var seg = function(from, to, cls){
@@ -456,8 +496,13 @@ function chart(tid){
     return '<path class="ln ' + cls + '" d="' + d + '"/>';
   };
   var zeroY = (p.lo <= 0 && p.hi >= 0) ? p.y(0) : null;
+  /* Inside a day every point carries the same date, so the axis has to switch
+     to a clock or both ends read identically. */
+  var sameDay = (at[at.length-1] - at[0]) <= 86400;
   var when = function(i){
-    return new Date(at[i]*1000).toLocaleDateString([], {month:"short", day:"numeric"});
+    var d = new Date(at[i]*1000);
+    return sameDay ? d.toLocaleTimeString([], {hour:"numeric", minute:"2-digit"})
+                   : d.toLocaleDateString([], {month:"short", day:"numeric"});
   };
   return '<svg class="chart" viewBox="0 0 ' + W + ' ' + H + '">' +
     (zeroY !== null ? '<line class="zero" x1="0" y1="' + zeroY.toFixed(1) + '" x2="' + W + '" y2="' + zeroY.toFixed(1) + '"/>' : "") +
@@ -509,6 +554,22 @@ function paint(){
       '<td class="pt-num">' + pct(t.p_shame) + '</td></tr>' +
     '<tr class="detail" data-for="' + t.team_id + '" hidden><td colspan="7">' + detail(t) + '</td></tr>';
   }).join("");
+
+  /* Delegated on the table, which survives the redraw. Binding per button and
+     re-binding after would capture the REPLACED node, so the range would read
+     stale and freeze after one click. */
+  el("money").onclick = function(e){
+    var b = e.target.closest ? e.target.closest(".rb") : null;
+    if(!b) return;
+    e.stopPropagation();                   /* the row's own handler closes the panel */
+    if(b.disabled || b.classList.contains("off")) return;
+    chartRange = b.dataset.range;
+    /* redraw every open panel in place; a full paint() would collapse them all */
+    Array.prototype.forEach.call(document.querySelectorAll(".chartbox"), function(box){
+      var id = Number(box.dataset.team);
+      box.innerHTML = rangeButtons(id) + chart(id);
+    });
+  };
 
   Array.prototype.forEach.call(document.querySelectorAll("tr.row"), function(tr){
     tr.onclick = function(){
@@ -812,7 +873,8 @@ function detail(t){
     }).join("") + "</div>" : "";
 
   return '<div class="pt-mono-label">EV, over time</div>' + dayCallout(t.team_id) +
-    chart(t.team_id) +
+    '<div class="chartbox" data-team="' + t.team_id + '">' + rangeButtons(t.team_id) +
+    chart(t.team_id) + '</div>' +
     '<div class="pt-mono-label">Finish distribution</div><div class="dist">' + bars + "</div>" +
     '<div class="dist-ax">' + ax + "</div>" +
     '<div class="facts">' +
