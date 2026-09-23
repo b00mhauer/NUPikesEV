@@ -50,11 +50,33 @@ def rate_scale(players: list[dict], week: int) -> float:
 def player_week(p: dict, week: int, scale: float = 1.0) -> float:
     """What this player is worth in this week.
 
-    ESPN's own projection wins where it exists (the current week only). Beyond
-    that it is his rest-of-season rate, lifted onto the weekly scale and then
-    shaped by the matchup — `factors` from `sleeper`, which default to 1.0 and
-    therefore to the flat rate this model used before they existed.
+    Which forecast answers is config.PROJECTION_SOURCE: "espn" (its own week
+    projection where published, else the rest-of-season rate shaped by the
+    matchup), "sleeper" (Sleeper's weekly line scored under our rules), or
+    "blend" (the weighted average, per player per week). A player Sleeper does
+    not cover falls back to ESPN under every setting, so switching source can
+    never zero somebody out.
     """
+    espn = _espn_week(p, week, scale)
+    source = config.PROJECTION_SOURCE
+    if source == "espn":
+        return espn
+    sl = (p.get("sleeper") or {}).get(week)
+    if sl is None:
+        # No Sleeper line for this player-week (unmatched, or the sentinel week
+        # the optimizer uses for "no byes left"). Fall back to ESPN rather than
+        # scoring him zero -- a missing forecast is not a bad forecast.
+        return espn
+    if source == "sleeper":
+        return float(sl)
+    w = config.BLEND_WEIGHTS
+    tot = w["espn"] + w["sleeper"]
+    return (w["espn"] * espn + w["sleeper"] * float(sl)) / tot if tot else espn
+
+
+def _espn_week(p: dict, week: int, scale: float) -> float:
+    """ESPN's view: its own week projection where it published one, else the
+    rest-of-season rate lifted onto the weekly scale and shaped by the matchup."""
     if week in p["weekly"]:
         return float(p["weekly"][week])
     factor = float(p.get("factors", {}).get(week, 1.0))

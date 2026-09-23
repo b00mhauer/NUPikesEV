@@ -36,6 +36,8 @@ import time
 
 import requests
 
+from . import config
+
 BASE = "https://api.sleeper.com/projections/nfl"
 POSITIONS = ("QB", "RB", "WR", "TE", "K", "DEF")
 TIMEOUT = 40
@@ -91,6 +93,68 @@ def index(rows: list[dict]) -> tuple[dict, dict]:
             key = (norm(f"{p.get('first_name','')} {p.get('last_name','')}"), pos)
             skill[key] = float(pts)
     return skill, dst
+
+
+def score_line(stats: dict) -> float:
+    """Sleeper's raw projected stat line, scored under THIS league's rules."""
+    return sum(pts * float(stats.get(col) or 0.0)
+               for col, pts in config.SLEEPER_STAT_POINTS.items())
+
+
+def index_points(rows: list[dict]) -> tuple[dict, dict]:
+    """Same shape as index(), but the value is points in OUR scoring.
+
+    index() deliberately keeps Sleeper's own pts_std because it is only ever used
+    as a ratio, where the scoring cancels. This one is a LEVEL, so it has to be
+    scored under our rules: the league's -1 per sack and its lack of PPR move a
+    QB or a receiver by several points a week."""
+    skill, dst = {}, {}
+    for r in rows:
+        p = r.get("player") or {}
+        st = r.get("stats") or {}
+        if st.get("pts_ppr") is None and st.get("pts_std") is None:
+            continue
+        pos = p.get("position")
+        if pos == "DEF":
+            team = p.get("team")
+            if team:
+                # SLEEPER_STAT_POINTS has no defensive columns, so keep their total
+                dst[TEAM_ALIAS.get(team, team)] = float(st.get("pts_std") or 0.0)
+        else:
+            key = (norm(f"{p.get('first_name','')} {p.get('last_name','')}"), pos)
+            skill[key] = score_line(st)
+    return skill, dst
+
+
+def week_points(players: list[dict], season: int, weeks: list[int],
+                team_abbrev: dict[int, str],
+                by_week: dict[int, tuple[dict, dict]] | None = None) -> tuple[dict, dict]:
+    """player_id -> {week: points in OUR scoring}, plus a coverage report.
+
+    The LEVEL counterpart to week_factors(). A single week is meaningful here,
+    unlike a shape which needs two, so coverage runs higher."""
+    if by_week is None:
+        by_week = {w: index_points(fetch_week(season, w)) for w in weeks}
+    out: dict[int, dict[int, float]] = {}
+    matched = set()
+    for p in players:
+        pid, pos = p["player_id"], p["pos"]
+        series = {}
+        for w in weeks:
+            skill, dst = by_week[w]
+            if pos == "DST":
+                code = team_abbrev.get(p["pro_team"])
+                val = dst.get(TEAM_ALIAS.get(code, code)) if code else None
+            else:
+                val = skill.get((norm(p["name"]), pos))
+            if val is not None:
+                series[w] = float(val)
+        if series:
+            out[pid] = series
+            matched.add(pid)
+    report = {"coverage": len(matched) / len(players) if players else 0.0,
+              "matched": len(matched), "players": len(players), "error": None}
+    return out, report
 
 
 def week_factors(players: list[dict], season: int, weeks: list[int],

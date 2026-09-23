@@ -35,6 +35,32 @@ POSITION = {1: "QB", 2: "RB", 3: "WR", 4: "TE", 5: "K", 16: "DST"}
 # streaming actually costs, not at zero.
 REPLACEMENT_RANK = {"QB": 12, "RB": 30, "WR": 30, "TE": 12, "K": 12, "DST": 12}
 
+# --- Sleeper's stat columns -> this league's points ---------------------------
+# Sleeper ships the RAW projected stat line per player per week, so we can score
+# it under this league's own rules rather than trusting its scoring. Mirrors
+# config.STAT_POINTS in the private repo, which is the canonical map; these are
+# league settings any member can read off ESPN, so nothing is given away here.
+SLEEPER_STAT_POINTS = {
+    "pass_yd": 0.04, "pass_td": 5.0, "pass_int": -2.0, "pass_2pt": 2.0,
+    "pass_sack": -1.0,                       # the league's signature penalty
+    "rush_yd": 0.1, "rush_td": 6.0, "rush_2pt": 2.0,
+    "rec_yd": 0.1, "rec_td": 6.0, "rec_2pt": 2.0,
+    "fum_lost": -2.0,
+}
+
+# --- which forecast drives the model ------------------------------------------
+# "espn"    ESPN's season projection spread over the weeks he plays, shaped by
+#           Sleeper's matchup ratio. The long-standing behaviour.
+# "sleeper" Sleeper's weekly line, scored under SLEEPER_STAT_POINTS. Refreshed
+#           weekly rather than derived from a season total that is not marked
+#           down when a player misses time.
+# "blend"   The weighted average of the two, per player per week. A player
+#           Sleeper does not cover falls back to ESPN, never to zero.
+# Set EV_PROJECTION_SOURCE as a repository variable to switch without a commit.
+PROJECTION_SOURCE = (os.environ.get("EV_PROJECTION_SOURCE") or "espn").strip().lower()
+BLEND_WEIGHTS = {"espn": float(os.environ.get("EV_BLEND_ESPN") or 0.5),
+                 "sleeper": float(os.environ.get("EV_BLEND_SLEEPER") or 0.5)}
+
 # --- the money ----------------------------------------------------------------
 # Twelve owners ante one share each; the pot pays 8/3/1 shares to 1st/2nd/3rd.
 # You never win your own share back, so NET shares are 7/2/0 and every other

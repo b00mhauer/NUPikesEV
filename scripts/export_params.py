@@ -71,9 +71,21 @@ def build(season: int) -> dict:
         try:
             abbrev = {t["id"]: t["abbrev"]
                       for t in raw["proteams"]["settings"]["proTeams"]}
-            factors, shape = sleeper.week_factors(all_players, season, span_ahead, abbrev)
+            # One network pull, two uses: the shape (ratios) the espn path applies,
+            # and the level (points in our scoring) the sleeper/blend paths read.
+            rows = {w: sleeper.fetch_week(season, w) for w in span_ahead}
+            factors, shape = sleeper.week_factors(
+                all_players, season, span_ahead, abbrev,
+                by_week={w: sleeper.index(r) for w, r in rows.items()})
+            cur_rows = sleeper.fetch_week(season, current)
+            pts, lvl = sleeper.week_points(
+                all_players, season, span_ahead + [current], abbrev,
+                by_week={**{w: sleeper.index_points(r) for w, r in rows.items()},
+                         current: sleeper.index_points(cur_rows)})
+            shape["level_coverage"] = lvl["coverage"]
             for p in all_players:
                 p["factors"] = factors.get(p["player_id"], {})
+                p["sleeper"] = pts.get(p["player_id"], {})
         except Exception as exc:                      # noqa: BLE001 - never fatal
             shape = {"coverage": 0.0, "matched": 0, "players": len(all_players),
                      "error": f"{type(exc).__name__}: {exc}"[:120]}
