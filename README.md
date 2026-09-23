@@ -43,9 +43,11 @@ against its own — a ratio cancels that and leaves the matchup. Anything Sleepe
 cannot match gets a factor of 1.0, which is the flat rate, so the dependency can
 fail without the model degrading.
 
-Measured rather than assumed: the two sources are statistically indistinguishable
-on accuracy (Sleeper MAE 4.91 / r 0.580, ESPN 4.97 / 0.607, n=159), so this is
-about availability. Defences match on team code, not name — every unmatched
+**It is in for availability, not accuracy** — whether the shape actually helps
+is still an open question, and `scripts/score_projections.py` is measuring it:
+both columns, flat and shaped, are banked for every future week *before* that
+week is played, then graded once it lands. It refuses to give a verdict on a
+small sample and can return "the matchup shape hurts". Defences match on team code, not name — every unmatched
 player in the live league was a D/ST — which puts coverage at 99%. Net effect: a
 team-week moves a median of 1.5 points, up to 7.8, against 19.6 of weekly noise.
 
@@ -141,6 +143,7 @@ server and no network.
 | `evmodel/roster_strength.py` | the lineup optimizer that turns a roster into a weekly mean |
 | `evmodel/ev_history.py` | the tape (columnar, thinned, append-when-moved) |
 | `evmodel/sleeper.py` | matchup shape — the week-to-week ratios ESPN does not publish |
+| `evmodel/projection_log.py` | the forward test: bank predictions now, grade them later |
 | `scripts/ev_sim.js` | the engine in the browser — a port of `season_sim.py`, tested against it |
 | `scripts/build_app.py` | build the page |
 | `.github/workflows/publish.yml` | the whole loop, on a schedule |

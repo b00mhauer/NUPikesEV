@@ -19,6 +19,7 @@ import json
 import os
 import sys
 import time
+import time
 from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
@@ -26,9 +27,11 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 
-from evmodel import config, espn_live, roster_strength, season_sim, sleeper  # noqa: E402
+from evmodel import (config, espn_live, projection_log, roster_strength,  # noqa: E402
+                     season_sim, sleeper)
 
 OUT = REPO / "data" / "params.json"
+FORWARD_LOG = REPO / "data" / "projection_log.json"
 # Whose card sits at the top of the page. Set it in the environment, not here —
 # the repository is public and there is no reason to publish anyone's name.
 OUR_OWNER = os.environ.get("EV_OWNER", "")
@@ -92,6 +95,16 @@ def build(season: int) -> dict:
                     m[f"{side}_points"] = d["points"]
                     m[f"{side}_proj"] = d["proj"]
                     m[f"{side}_frac"] = d["frac"]
+
+    # Forward test: bank this week's predictions before the weeks are played,
+    # so the matchup layer can be graded later with no hindsight.
+    if span_ahead:
+        log = projection_log.load(FORWARD_LOG, season)
+        if projection_log.record(log, current, int(time.time()), all_players,
+                                 span_ahead, scale):
+            projection_log.save(log, FORWARD_LOG)
+            print(f"[params] forward test: banked week {current} "
+                  f"({len(span_ahead)} weeks ahead)")
 
     span = list(range(1, reg_weeks + 1))
     raw_priors = {tid: roster_strength.weekly_priors(pl, span, current, replacement, scale)
