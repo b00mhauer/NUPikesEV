@@ -57,7 +57,7 @@ SLEEPER_STAT_POINTS = {
 # "blend"   The weighted average of the two, per player per week. A player
 #           Sleeper does not cover falls back to ESPN, never to zero.
 # Set EV_PROJECTION_SOURCE as a repository variable to switch without a commit.
-PROJECTION_SOURCE = (os.environ.get("EV_PROJECTION_SOURCE") or "espn").strip().lower()
+PROJECTION_SOURCE = (os.environ.get("EV_PROJECTION_SOURCE") or "blend").strip().lower()
 BLEND_WEIGHTS = {"espn": float(os.environ.get("EV_BLEND_ESPN") or 0.5),
                  "sleeper": float(os.environ.get("EV_BLEND_SLEEPER") or 0.5)}
 
