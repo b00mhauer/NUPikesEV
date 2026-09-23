@@ -101,7 +101,9 @@ section{margin-bottom:12px;}
   padding:7px 9px;}
 .stakes .side .k{font-size:var(--fs-tiny);color:var(--text-muted);text-transform:uppercase;}
 .stakes .side .v{font-size:var(--fs-h2);font-variant-numeric:tabular-nums;}
-.stakes .side.w .v{color:var(--up);} .stakes .side.l .v{color:var(--down);}
+.stakes .side .v.pos{color:var(--up);} .stakes .side .v.neg{color:var(--down);}
+/* A win can still leave you under water and a loss can leave you well above it,
+   so the sign of the number decides the colour. Exactly $0 stays neutral. */
 .stakes .side small{display:block;color:var(--text-muted);font-size:var(--fs-tiny);}
 .mu .swingline{grid-column:1/-1;text-align:center;font-size:var(--fs-tiny);color:var(--text-muted);
   padding-top:2px;}
@@ -619,15 +621,22 @@ function paintHero(teams){
   };
 }
 
+/* Both boxes hold a conditional EV -- what the season is worth IF this week goes
+   that way -- not a delta. So either can be positive: a strong team can lose and
+   stay in the money, a weak one can win and still be down a share. */
+function signCls(n){ return n > 0 ? " pos" : n < 0 ? " neg" : ""; }
+
 /* What Sunday is actually worth: the same seasons, split by who won this week. */
 function stakesBlock(t, oppName){
   var s = t.stakes;
   return '<div class="stakes"><div class="lab">Week ' + s.week +
     (oppName ? " vs " + esc(oppName) : "") + " \u00b7 " + pct(s.p_win, 0) + " to win</div>" +
     '<div class="two">' +
-      '<div class="side w"><span class="k">win</span><span class="v">' + fmtUsd(s.ev_win) +
+      '<div class="side w"><span class="k">if win</span><span class="v' + signCls(s.ev_win) + '">' +
+        fmtUsd(s.ev_win) +
         '</span><small>' + pct(s.playoffs_win, 0) + ' playoffs</small></div>' +
-      '<div class="side l"><span class="k">lose</span><span class="v">' + fmtUsd(s.ev_lose) +
+      '<div class="side l"><span class="k">if lose</span><span class="v' + signCls(s.ev_lose) + '">' +
+        fmtUsd(s.ev_lose) +
         '</span><small>' + pct(s.playoffs_lose, 0) + ' playoffs</small></div>' +
     "</div></div>";
 }
