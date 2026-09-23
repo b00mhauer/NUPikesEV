@@ -157,6 +157,10 @@ section{margin-bottom:12px;}
 .own{color:var(--text-muted);font-size:var(--fs-tiny);display:block;}
 .ev{font-variant-numeric:tabular-nums;font-weight:700;}
 .ev.pos{color:var(--up);} .ev.neg{color:var(--down);}
+.d24{font-size:var(--fs-tiny);color:var(--text-muted);text-transform:uppercase;
+     letter-spacing:.04em;margin:2px 0 5px;}
+.d24 b{font-variant-numeric:tabular-nums;color:var(--text-primary);letter-spacing:0;}
+.d24 b.pos{color:var(--up);} .d24 b.neg{color:var(--down);}
 .detail td{background:var(--surface-2);white-space:normal;}
 .dist{display:flex;align-items:flex-end;gap:2px;height:44px;margin:6px 0 4px;}
 .dist i{flex:1;background:var(--grid-strong);border-radius:1px 1px 0 0;min-height:1px;
@@ -391,6 +395,28 @@ function sinceWeekStart(tid){
   return base === null ? null : vals[vals.length-1] - base;
 }
 
+/* What the last day did to the number. The tape is dense (a point per run when
+   anything moved), so "24h ago" is the last LIVE point at or before the cutoff.
+   Reconstructed points are excluded on purpose: they are a backfill of completed
+   weeks on today's projections, not an observation of what the number was then,
+   and differencing against one would mix two bases. If the live tape is younger
+   than a day we say how young rather than quietly comparing to a backfill. */
+function last24h(tid){
+  var vals = series(tid, "ev"), at = hist.at || [], recon = hist.recon || [];
+  if(vals.length < 2 || at.length !== vals.length) return null;
+  var now = at[at.length - 1], cut = now - 86400, base = null, baseAt = null;
+  for(var i = 0; i < vals.length - 1; i++){
+    if(!recon[i] && at[i] <= cut){ base = vals[i]; baseAt = at[i]; }
+  }
+  if(base !== null) return {d: vals[vals.length-1] - base, hours: 24, partial: false};
+  for(var j = 0; j < vals.length - 1; j++){
+    if(!recon[j]){ base = vals[j]; baseAt = at[j]; break; }
+  }
+  if(base === null) return null;
+  return {d: vals[vals.length-1] - base,
+          hours: Math.max(1, Math.round((now - baseAt) / 3600)), partial: true};
+}
+
 function path(vals, w, h, pad){
   var lo = Math.min.apply(null, vals), hi = Math.max.apply(null, vals);
   if(hi === lo){ lo -= 1; hi += 1; }
@@ -592,6 +618,26 @@ function heroTeam(teams){
   return teams[rotateAt % teams.length];
 }
 
+/* Quiet by design: only when a full day of live tape exists and the number
+   actually moved a dollar. Sits next to the week delta, never replaces it. */
+function heroDay(tid){
+  var x = last24h(tid);
+  if(!x || x.partial || Math.abs(x.d) < 1) return "";
+  return ' · <span class="' + (x.d >= 0 ? "pt-up" : "pt-down") + '">' +
+         fmtUsd(x.d) + ' 24h</span>';
+}
+
+/* The expanded panel is where someone digs in after "something happened
+   yesterday", so this one speaks even when the tape is young -- it just says so. */
+function dayCallout(tid){
+  var x = last24h(tid);
+  if(!x) return "";
+  var lab = x.partial ? "since the tape went live " + x.hours + "h ago" : "last 24 hours";
+  if(Math.abs(x.d) < 1) return '<div class="d24">' + lab + ' <b>unchanged</b></div>';
+  return '<div class="d24">' + lab + ' <b class="' + signCls(x.d) + '">' +
+         fmtUsd(x.d) + "</b></div>";
+}
+
 function paintHero(teams){
   var t = heroTeam(teams);
   var swing = baseline ? t.ev_usd - byId(baseline, t.team_id).ev_usd
@@ -607,6 +653,7 @@ function paintHero(teams){
     '<div class="swing">expected winnings' +
       (swing === null || Math.abs(swing) < 1 ? "" : ' \u00b7 <span class="' +
         (swing >= 0 ? "pt-up" : "pt-down") + '">' + fmtUsd(swing) + " " + swingLabel + "</span>") +
+      heroDay(t.team_id) +
       (MINE ? "" : ' \u00b7 <span class="pt-mono-label">tap a row to pin your team</span>') + '</div>' +
     '<div class="chips">' +
       chip("champ", pct(t.p_champ), "good") + chip("in the money", pct(t.p_money), "good") +
@@ -764,7 +811,8 @@ function detail(t){
       return "<div><b>" + esc(s.slot) + "</b> " + esc(s.name.split(" ").slice(-1)[0]) + " " + s.proj.toFixed(1) + "</div>";
     }).join("") + "</div>" : "";
 
-  return '<div class="pt-mono-label">EV, over time</div>' + chart(t.team_id) +
+  return '<div class="pt-mono-label">EV, over time</div>' + dayCallout(t.team_id) +
+    chart(t.team_id) +
     '<div class="pt-mono-label">Finish distribution</div><div class="dist">' + bars + "</div>" +
     '<div class="dist-ax">' + ax + "</div>" +
     '<div class="facts">' +
