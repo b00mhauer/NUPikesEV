@@ -401,26 +401,19 @@ function sinceWeekStart(tid){
   return base === null ? null : vals[vals.length-1] - base;
 }
 
-/* What the last day did to the number. The tape is dense (a point per run when
-   anything moved), so "24h ago" is the last LIVE point at or before the cutoff.
-   Reconstructed points are excluded on purpose: they are a backfill of completed
-   weeks on today's projections, not an observation of what the number was then,
-   and differencing against one would mix two bases. If the live tape is younger
-   than a day we say how young rather than quietly comparing to a backfill. */
-function last24h(tid){
-  var vals = series(tid, "ev"), at = hist.at || [], recon = hist.recon || [];
-  if(vals.length < 2 || at.length !== vals.length) return null;
-  var now = at[at.length - 1], cut = now - 86400, base = null, baseAt = null;
-  for(var i = 0; i < vals.length - 1; i++){
-    if(!recon[i] && at[i] <= cut){ base = vals[i]; baseAt = at[i]; }
-  }
-  if(base !== null) return {d: vals[vals.length-1] - base, hours: 24, partial: false};
-  for(var j = 0; j < vals.length - 1; j++){
-    if(!recon[j]){ base = vals[j]; baseAt = at[j]; break; }
-  }
-  if(base === null) return null;
-  return {d: vals[vals.length-1] - base,
-          hours: Math.max(1, Math.round((now - baseAt) / 3600)), partial: true};
+/* Change across a window, measured end to end over the SAME points the chart
+   draws -- so the number and the line always agree about what they describe.
+   `short` means the tape does not reach back as far as the range asked for, in
+   which case we name the span we actually have instead of overclaiming: a "last
+   24 hours" that really covers 12 is a lie the reader cannot see. */
+function changeOver(tid, secs){
+  var w = windowed(tid, secs);
+  if(w.vals.length < 2) return null;
+  var span = w.at[w.at.length - 1] - w.at[0];
+  return {d: w.vals[w.vals.length - 1] - w.vals[0],
+          hours: Math.max(1, Math.round(span / 3600)),
+          short: secs !== null && span < secs * 0.75,
+          fromRecon: !!w.recon[0]};
 }
 
 function path(vals, w, h, pad){
@@ -458,6 +451,12 @@ function sparkline(tid){
 var RANGES = [["1H", 3600], ["1D", 86400], ["1W", 604800], ["ALL", null]];
 var chartRange = "ALL";
 
+/* Which panels the reader has open, by team id. paint() rebuilds the whole table,
+   and it runs every 60s while a week is live -- without this an expanded panel
+   slams shut mid-read on Sunday, and the first tap on a row (which also claims
+   your team, repainting) never appeared to expand at all. */
+var openRows = {};
+
 function windowed(tid, secs){
   var vals = series(tid, "ev"), at = hist.at || [], recon = hist.recon || [];
   if(at.length !== vals.length) return {vals: vals, at: at, recon: recon};
@@ -467,6 +466,12 @@ function windowed(tid, secs){
     if(at[i] >= cut){ v.push(vals[i]); a.push(at[i]); r.push(recon[i]); }
   }
   return {vals: v, at: a, recon: r};
+}
+
+/* One place builds the panel's chart block, so the click redraw and the first
+   render cannot drift apart. */
+function chartBody(tid){
+  return rangeButtons(tid) + rangeCallout(tid) + chart(tid);
 }
 
 function rangeButtons(tid){
@@ -567,15 +572,20 @@ function paint(){
     /* redraw every open panel in place; a full paint() would collapse them all */
     Array.prototype.forEach.call(document.querySelectorAll(".chartbox"), function(box){
       var id = Number(box.dataset.team);
-      box.innerHTML = rangeButtons(id) + chart(id);
+      box.innerHTML = chartBody(id);
     });
   };
 
+  restoreRows();
+
   Array.prototype.forEach.call(document.querySelectorAll("tr.row"), function(tr){
     tr.onclick = function(){
-      var d = document.querySelector('tr.detail[data-for="' + tr.dataset.id + '"]');
-      d.hidden = !d.hidden;
-      if (!MINE) pickTeam(tr.dataset.id);      /* first tap also claims the team */
+      var id = tr.dataset.id;
+      openRows[id] = !openRows[id];
+      var d = document.querySelector('tr.detail[data-for="' + id + '"]');
+      if (d) d.hidden = !openRows[id];
+      /* first tap also claims the team, which repaints -- restoreRows() reopens it */
+      if (!MINE) pickTeam(id);
     };
   });
 
@@ -671,6 +681,12 @@ function pickTeam(id){
   paint();
 }
 
+function restoreRows(){
+  Array.prototype.forEach.call(document.querySelectorAll("tr.detail"), function(d){
+    d.hidden = !openRows[d.getAttribute("data-for")];
+  });
+}
+
 function heroTeam(teams){
   if (MINE) {
     var mine = teams.filter(function(t){ return String(t.team_id) === MINE; })[0];
@@ -682,18 +698,23 @@ function heroTeam(teams){
 /* Quiet by design: only when a full day of live tape exists and the number
    actually moved a dollar. Sits next to the week delta, never replaces it. */
 function heroDay(tid){
-  var x = last24h(tid);
-  if(!x || x.partial || Math.abs(x.d) < 1) return "";
+  var x = changeOver(tid, 86400);
+  if(!x || x.short || Math.abs(x.d) < 1) return "";
   return ' · <span class="' + (x.d >= 0 ? "pt-up" : "pt-down") + '">' +
          fmtUsd(x.d) + ' 24h</span>';
 }
 
-/* The expanded panel is where someone digs in after "something happened
-   yesterday", so this one speaks even when the tape is young -- it just says so. */
-function dayCallout(tid){
-  var x = last24h(tid);
-  if(!x) return "";
-  var lab = x.partial ? "since the tape went live " + x.hours + "h ago" : "last 24 hours";
+var RANGE_LABEL = {"1H": "last hour", "1D": "last 24 hours",
+                   "1W": "last week", "ALL": "season to date"};
+
+/* Reads the selected range, so tapping 1H / 1D / 1W / ALL re-answers the
+   question for that window rather than always reporting the day. */
+function rangeCallout(tid){
+  var secs = null;
+  RANGES.forEach(function(pr){ if(pr[0] === chartRange) secs = pr[1]; });
+  var x = changeOver(tid, secs);
+  if(!x) return '<div class="d24">not enough tape in this window</div>';
+  var lab = x.short ? "last " + x.hours + "h of tape" : RANGE_LABEL[chartRange];
   if(Math.abs(x.d) < 1) return '<div class="d24">' + lab + ' <b>unchanged</b></div>';
   return '<div class="d24">' + lab + ' <b class="' + signCls(x.d) + '">' +
          fmtUsd(x.d) + "</b></div>";
@@ -872,9 +893,8 @@ function detail(t){
       return "<div><b>" + esc(s.slot) + "</b> " + esc(s.name.split(" ").slice(-1)[0]) + " " + s.proj.toFixed(1) + "</div>";
     }).join("") + "</div>" : "";
 
-  return '<div class="pt-mono-label">EV, over time</div>' + dayCallout(t.team_id) +
-    '<div class="chartbox" data-team="' + t.team_id + '">' + rangeButtons(t.team_id) +
-    chart(t.team_id) + '</div>' +
+  return '<div class="pt-mono-label">EV, over time</div>' +
+    '<div class="chartbox" data-team="' + t.team_id + '">' + chartBody(t.team_id) + '</div>' +
     '<div class="pt-mono-label">Finish distribution</div><div class="dist">' + bars + "</div>" +
     '<div class="dist-ax">' + ax + "</div>" +
     '<div class="facts">' +
@@ -944,6 +964,17 @@ def main() -> None:
     args.out.write_text(build())
     kb = args.out.stat().st_size / 1024
     print(f"[page] {args.out.name}  ({kb:.0f} KB, {SIMS} sims/run)")
+
+    # The page bakes a copy of both files AND re-fetches them at runtime for
+    # anything fresher. Publishing them here keeps a local build self-consistent:
+    # otherwise stale siblings left in _site override the freshly baked data and
+    # the tape silently reads older than it is.
+    for src, name in ((PARAMS, "ev_season.json"), (TAPE, "ev_history.json")):
+        if src.exists():
+            (args.out.parent / name).write_text(src.read_text())
+            print(f"[page] {name}  (from {src.relative_to(REPO)})")
+        else:
+            print(f"[page] WARNING {name} not written - {src.relative_to(REPO)} missing")
 
 
 if __name__ == "__main__":
