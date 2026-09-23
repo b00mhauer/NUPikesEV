@@ -310,6 +310,7 @@ def test_exported_params_are_valid():
     assert p["payout_usd"]["1"] == config.payout_usd(1)
     r = season_sim.simulate(p, 4000, seed=1)
     assert sum(t["ev_usd"] for t in r["teams"]) == pytest.approx(0, abs=1e-6)
-    assert sum(1 for t in r["teams"] if t["is_us"]) == 1
+    # nobody is pre-designated: the page lets each viewer pick their own team
+    assert sum(1 for t in r["teams"] if t["is_us"]) <= 1
     for t in p["teams"]:
         assert all(60 < v < 160 for v in t["prior_weekly"].values()), t["abbrev"]

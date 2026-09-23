@@ -33,6 +33,22 @@ Two calibrations, both measured, both shown on the page:
 - The league's scoring level is then nudged to what it actually scores, shrunk
   toward 1 by how little has been played.
 
+**Matchup shape comes from a second source.** ESPN publishes a week-specific
+projection for exactly one week — the current one — so every week after it would
+otherwise be the same flat number for a player. Sleeper projects every remaining
+week, differentiated by opponent. We take **only the shape**: `factor =
+sleeper_week / that player's average week`, applied to ESPN's rate. The level
+stays ESPN's, because ESPN scores against the league's actual rules and Sleeper
+against its own — a ratio cancels that and leaves the matchup. Anything Sleeper
+cannot match gets a factor of 1.0, which is the flat rate, so the dependency can
+fail without the model degrading.
+
+Measured rather than assumed: the two sources are statistically indistinguishable
+on accuracy (Sleeper MAE 4.91 / r 0.580, ESPN 4.97 / 0.607, n=159), so this is
+about availability. Defences match on team code, not name — every unmatched
+player in the live league was a D/ST — which puts coverage at 99%. Net effect: a
+team-week moves a median of 1.5 points, up to 7.8, against 19.6 of weekly noise.
+
 **2. Results shrink toward that prior — they never replace it.** Weekly scores
 swing about **19.6 points** (within-team sd, five seasons), far more than a
 roster projection still leaves uncertain (about **4**). So a team's own results
@@ -124,6 +140,7 @@ server and no network.
 | `evmodel/espn_live.py` | ESPN's league endpoints — projections, injuries, byes, kickoffs |
 | `evmodel/roster_strength.py` | the lineup optimizer that turns a roster into a weekly mean |
 | `evmodel/ev_history.py` | the tape (columnar, thinned, append-when-moved) |
+| `evmodel/sleeper.py` | matchup shape — the week-to-week ratios ESPN does not publish |
 | `scripts/ev_sim.js` | the engine in the browser — a port of `season_sim.py`, tested against it |
 | `scripts/build_app.py` | build the page |
 | `.github/workflows/publish.yml` | the whole loop, on a schedule |

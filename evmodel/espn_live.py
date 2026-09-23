@@ -129,6 +129,9 @@ def player_line(entry: dict, season: int, current_week: int,
     return {
         "slot": slot,
         "starting": slot in STARTER_SLOTS,
+        # per-week multipliers from `sleeper`, attached later by the exporter.
+        # Empty means "no matchup information", which is the old behaviour.
+        "factors": {},
         "player_id": player.get("id"),
         "name": player.get("fullName", ""),
         "pos": config.POSITION.get(player.get("defaultPositionId"), "NA"),

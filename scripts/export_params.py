@@ -26,7 +26,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 
-from evmodel import config, espn_live, roster_strength, season_sim  # noqa: E402
+from evmodel import config, espn_live, roster_strength, season_sim, sleeper  # noqa: E402
 
 OUT = REPO / "data" / "params.json"
 # Whose card sits at the top of the page. Set it in the environment, not here —
@@ -57,6 +57,25 @@ def build(season: int) -> dict:
     all_players = [p for team in rosters.values() for p in team]
     replacement = roster_strength.replacement_levels(all_players)
     scale = roster_strength.rate_scale(all_players, current)
+
+    # Matchup shape for the weeks ESPN does not project (everything after this
+    # one). If Sleeper is unreachable or has renamed something, every factor
+    # stays 1.0 and the model falls back to the flat rate it used before — so
+    # this is allowed to fail, but never quietly.
+    span_ahead = [w for w in range(current + 1, reg_weeks + 1)]
+    shape = {"coverage": 0.0, "matched": 0, "players": len(all_players), "error": None}
+    if span_ahead:
+        try:
+            abbrev = {t["id"]: t["abbrev"]
+                      for t in raw["proteams"]["settings"]["proTeams"]}
+            factors, shape = sleeper.week_factors(all_players, season, span_ahead, abbrev)
+            for p in all_players:
+                p["factors"] = factors.get(p["player_id"], {})
+        except Exception as exc:                      # noqa: BLE001 - never fatal
+            shape = {"coverage": 0.0, "matched": 0, "players": len(all_players),
+                     "error": f"{type(exc).__name__}: {exc}"[:120]}
+            print(f"[params] WARNING sleeper unavailable ({shape['error']}) — "
+                  "future weeks fall back to the flat rate")
 
     # the live week (if any) gets real scores + the share still to kick off
     live = {}
@@ -132,6 +151,9 @@ def build(season: int) -> dict:
             "rate_scale": round(scale, 4),
             "replacement": {k: round(v, 2) for k, v in replacement.items()},
             "players": len(all_players),
+            "matchup_source": "sleeper" if shape.get("matched") else "none (flat rate)",
+            "matchup_coverage": shape.get("coverage", 0.0),
+            "matchup_error": shape.get("error"),
             "injury_counts": dict(Counter(p["status"] for p in all_players
                                           if p["status"] != "ACTIVE")),
         },
@@ -153,7 +175,9 @@ def main() -> None:
     m = params["model"]
     print(f"[params] week {params['current_week']}  {len(params['teams'])} teams  "
           f"{m['players']} players  rate x{m['rate_scale']}  "
-          f"level x{m['calibration_scale']}  {OUT.stat().st_size//1024} KB")
+          f"level x{m['calibration_scale']}  "
+          f"matchup {m['matchup_source']} {m['matchup_coverage']:.0%}  "
+          f"{OUT.stat().st_size//1024} KB")
 
 
 if __name__ == "__main__":

@@ -48,11 +48,17 @@ def rate_scale(players: list[dict], week: int) -> float:
 
 
 def player_week(p: dict, week: int, scale: float = 1.0) -> float:
-    """ESPN's own projection for that week where it has published one, else his
-    rest-of-season rate lifted onto the same (conditional) scale."""
+    """What this player is worth in this week.
+
+    ESPN's own projection wins where it exists (the current week only). Beyond
+    that it is his rest-of-season rate, lifted onto the weekly scale and then
+    shaped by the matchup — `factors` from `sleeper`, which default to 1.0 and
+    therefore to the flat rate this model used before they existed.
+    """
     if week in p["weekly"]:
         return float(p["weekly"][week])
-    return float(p["rate"]) * scale
+    factor = float(p.get("factors", {}).get(week, 1.0))
+    return float(p["rate"]) * scale * factor
 
 
 def replacement_levels(all_players: list[dict]) -> dict[str, float]:
