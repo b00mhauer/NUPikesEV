@@ -69,44 +69,33 @@ not a measurement.
 - **A crawl** along the bottom, every team quoted like a stock, with plaque watch
   and the biggest swing of the week.
 
-## Privacy — read this before deploying
+## It is an open page
 
-GitHub Pages on the free tier requires a **public** repository, so this one is
-public and the code is readable by anyone. **The data is not.** Everything real
-ships as **AES-256-GCM** ciphertext under a key derived from a passphrase
-(PBKDF2-SHA256, 300k rounds) and is decrypted in the browser. What that means in
-practice:
+There is no password. Anyone with the link opens it, and because GitHub Pages on
+the free tier requires a public repository, the code and the data are public too.
+That is a decision: the audience is the whole league, and a gate everybody has to
+be handed was not worth the friction.
 
-| Public | Private (encrypted or never committed) |
-|---|---|
-| the model's source | every team, owner and roster |
-| the payout structure | all projections, EV and odds |
-| that this exists | the tape, and even the league id |
+What that means concretely — on the page and in this repo, readable by anyone who
+finds them: team names, owner names as ESPN reports them, rosters, records,
+projections, and every EV and odds number here. What is *not* here: any
+credential. The model reads ESPN's public league endpoints; nothing it touches
+needs a login, and nothing secret is stored.
 
-Four guards, each covered by a test:
+`robots.txt` asks search engines to stay out. That is a request, not a wall.
 
-1. the workflow **refuses to run** without `EV_PASSPHRASE`
-2. the published page is built `--locked`: no teams, no tape, not even the league
-   id — only a lock screen and the engine
-3. a deploy gate greps `_site` and **fails** on anything data-shaped in the clear
-4. the plaintext payload is gitignored, and the tape is committed encrypted
-
-Actions logs are public here too, so every script prints counts and never a team,
-an owner or a dollar figure.
-
-**Use a passphrase you have not used anywhere league-facing.** It is the whole
-gate. Anyone with write access to this repository can also read the secret, so
-keep the collaborator list to yourself.
+If that ever stops being the right trade, the options in rough order of effort
+are: publish at an unguessable path instead of the root, put Cloudflare Access in
+front of it, or go back to encrypting the payload behind a passphrase (it was
+built that way first — see the history of `scripts/crypt.py`).
 
 ## Setup
 
 1. **Settings → Pages → Source: GitHub Actions**
-2. **Settings → Secrets and variables → Actions → Secrets:**
-   - `EV_PASSPHRASE` — unlocks the page (8+ characters)
+2. **Settings → Secrets and variables → Actions → Variables:**
    - `ESPN_LEAGUE_ID` — the league id
-   - `EV_OWNER` — the surname whose card sits at the top
-3. **→ Variables:** `ESPN_SEASON` (e.g. `2026`)
-4. Run **Actions → Publish EV → Run workflow** once to seed the tape and deploy.
+   - `ESPN_SEASON` — e.g. `2026`
+3. Run **Actions → Publish EV → Run workflow** once to seed the tape and deploy.
 
 The workflow then runs every 15 minutes through the game windows (Sunday
 afternoon and night, Monday night, Thursday night) and every three hours
@@ -116,16 +105,16 @@ otherwise — roughly 600 Actions minutes a month.
 
 ```bash
 pip install -r requirements.txt
-export ESPN_LEAGUE_ID=... ESPN_SEASON=2026 EV_OWNER=... EV_PASSPHRASE=...
+export ESPN_LEAGUE_ID=... ESPN_SEASON=2026
 
-python scripts/export_params.py              # pull ESPN -> data/params.json
+python scripts/export_params.py                            # pull ESPN -> data/params.json
 python scripts/record_snapshot.py --no-export --backfill   # seed the tape
-python scripts/build_app.py --local --out ev.html          # plaintext, for your disk
+python scripts/build_app.py --out ev.html                  # the page
 python -m pytest -q
 ```
 
-`--local` bakes the data in so the file works straight off your disk. **Never
-publish that build** — the default (`--locked`) is the one that may touch a URL.
+The build bakes the data in, so `ev.html` works straight off your disk with no
+server and no network.
 
 ## Layout
 
@@ -136,8 +125,7 @@ publish that build** — the default (`--locked`) is the one that may touch a UR
 | `evmodel/roster_strength.py` | the lineup optimizer that turns a roster into a weekly mean |
 | `evmodel/ev_history.py` | the tape (columnar, thinned, append-when-moved) |
 | `scripts/ev_sim.js` | the engine in the browser — a port of `season_sim.py`, tested against it |
-| `scripts/crypt.py` | lock / unlock the payload |
-| `scripts/build_app.py` | build the page (`--locked` by default) |
+| `scripts/build_app.py` | build the page |
 | `.github/workflows/publish.yml` | the whole loop, on a schedule |
 
 The JavaScript engine is a faithful port of the Python one; the suite runs both

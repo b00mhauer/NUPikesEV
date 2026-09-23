@@ -1,10 +1,9 @@
 """Record one tick of the tape — every team's EV, right now.
 
-Runs the model on the current params and appends to `data/ev_history.json.enc`
-when something has actually moved (or enough time has passed that a flat line
-would be a lie). The tape is stored ENCRYPTED because this repository is public:
-it is decrypted in memory, appended to, and re-encrypted. The plaintext never
-touches disk and never reaches a commit.
+Runs the model on the current params and appends to `data/ev_history.json` when
+something has actually moved (or enough time has passed that a flat line would be
+a lie). It is the only file here that cannot be rebuilt from ESPN, so it is the
+one thing committed back to the repo.
 
 Usage:
   python scripts/record_snapshot.py               # export fresh, then record
@@ -25,41 +24,21 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 sys.path.insert(0, str(REPO / "scripts"))
 
-import crypt  # noqa: E402
 from evmodel import config, espn_live, ev_history, season_sim  # noqa: E402
 
 PARAMS = REPO / "data" / "params.json"
-TAPE = REPO / "data" / "ev_history.json.enc"
+TAPE = REPO / "data" / "ev_history.json"
 SIMS = 20000
 SEED = 20260101
 
 
-def load_tape(passphrase: str, season: int) -> dict:
-    if not TAPE.exists():
-        return ev_history.empty(season)
-    try:
-        plain = crypt.unlock(json.loads(TAPE.read_text()), passphrase)
-    except Exception:
-        # Fail loudly. Silently starting over would throw the season away the
-        # first time someone rotates the passphrase — and the tape is the one
-        # thing here that cannot be rebuilt from ESPN.
-        raise SystemExit(
-            "The tape will not open with this passphrase. Either EV_PASSPHRASE "
-            "changed, or the file is damaged. To start a new tape on purpose, "
-            "delete data/ev_history.json.enc and re-run with --backfill.")
-    data = json.loads(plain)
-    if data.get("season") != season:
-        return ev_history.empty(season)
-    for k in ev_history.SERIES:
-        data.setdefault("series", {}).setdefault(k, {})
-    data.setdefault("recon", [0] * len(data.get("at", [])))
-    return data
+def load_tape(season: int) -> dict:
+    return ev_history.load(TAPE, season)
 
 
-def save_tape(hist: dict, passphrase: str) -> None:
-    blob = crypt.lock(json.dumps(hist, separators=(",", ":")).encode(), passphrase)
+def save_tape(hist: dict) -> None:
     TAPE.parent.mkdir(parents=True, exist_ok=True)
-    TAPE.write_text(json.dumps(blob, separators=(",", ":")))
+    ev_history.save(hist, TAPE)
 
 
 def week_end(params: dict, week: int) -> int:
@@ -97,15 +76,13 @@ def main() -> None:
     ap.add_argument("--sims", type=int, default=SIMS)
     args = ap.parse_args()
 
-    passphrase = crypt.passphrase_or_die()
-
     if not args.no_export:
         subprocess.run([sys.executable, str(REPO / "scripts/export_params.py"),
                         "--season", str(args.season)], cwd=REPO, check=True)
 
     params = season_sim.load_params(PARAMS)
     result = season_sim.simulate(params, args.sims, seed=SEED)
-    hist = load_tape(passphrase, args.season)
+    hist = load_tape(args.season)
     tick = ev_history.snapshot(result, params)
     now = int(time.time())
 
@@ -119,7 +96,7 @@ def main() -> None:
     if recorded or added:
         ev_history.sort_by_time(hist)
         ev_history.compact(hist, now)
-        save_tape(hist, passphrase)
+        save_tape(hist)
 
     # public logs: counts only, never a team, an owner or a dollar figure
     print(f"[tape] {'+1' if recorded else 'no move'}"

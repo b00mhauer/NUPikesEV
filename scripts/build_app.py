@@ -2,19 +2,15 @@
 
 Two builds from the same source:
 
-  --locked (the default, and what gets published) carries NO league data at all:
-    a lock screen, the engine, and fetchers for the encrypted files beside it.
-    Everything real — teams, rosters, projections, the tape, even the league id —
-    arrives as ciphertext and is decrypted with the passphrase. This is the only
-    build that may touch a public url.
+The params and the tape are baked in, so it opens instantly and works off a disk
+with no network. Served next to its data files it refetches them on load, so
+every scheduled run reaches the phone; either way it then polls ESPN directly
+(two calls: the league's matchup view and the pro schedule it caches) and
+reprices 15,000 seasons in the browser between runs.
 
-  --local bakes the plaintext in, for opening off your own disk.
+The page is open — no gate. Anyone with the link sees the league.
 
-Once unlocked the page polls ESPN directly (two calls: the league's matchup view
-and the pro schedule it caches) and reprices 15,000 seasons in the browser, so it
-keeps moving between scheduled runs.
-
-Usage: python scripts/build_app.py [--locked|--local] [--out PATH]
+Usage: python scripts/build_app.py [--out PATH]
 """
 
 from __future__ import annotations
@@ -27,32 +23,15 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
 PARAMS = REPO / "data" / "params.json"
-TAPE_PLAIN = REPO / "data" / "ev_history.json"      # only ever exists locally
-TAPE = REPO / "data" / "ev_history.json.enc"
+TAPE = REPO / "data" / "ev_history.json"
 THEME = REPO / "web" / "theme.css"
 OUT = REPO / "_site" / "index.html"
 SIMS = 15000
 
 
 def load_tape(season: int) -> dict:
-    """The tape lives encrypted (this repo is public). A local build opens it with
-    the passphrase; without one it just builds without history rather than fail."""
     empty = {"season": season, "at": [], "week": [], "recon": [], "series": {}}
-    if TAPE_PLAIN.exists():
-        return json.loads(TAPE_PLAIN.read_text())
-    if not TAPE.exists():
-        return empty
-    phrase = os.environ.get("EV_PASSPHRASE", "")
-    if len(phrase) < 8:
-        print("[page] no EV_PASSPHRASE — building without the tape")
-        return empty
-    sys.path.insert(0, str(REPO / "scripts"))
-    import crypt
-    try:
-        return json.loads(crypt.unlock(json.loads(TAPE.read_text()), phrase))
-    except Exception:
-        print("[page] the tape will not open with this passphrase — building without it")
-        return empty
+    return json.loads(TAPE.read_text()) if TAPE.exists() else empty
 
 
 def head(title: str, extra_css: str = "") -> str:
@@ -214,20 +193,6 @@ details[open] summary::after{content:" \\2212";}
 .note{padding:0 12px 12px;font-size:var(--fs-small);color:var(--text-secondary);line-height:1.5;}
 .note b{color:var(--text-primary);} .note code{color:var(--amber);font-size:var(--fs-tiny);}
 .note ul{margin:6px 0;padding-left:18px;} .note li{margin:3px 0;}
-/* --- the lock (published builds only) --- */
-#lock{position:fixed;inset:0;z-index:200;display:flex;align-items:center;justify-content:center;
-  background:var(--bg);padding:24px;}
-#lock[hidden]{display:none;}   /* an author display: rule beats the hidden attribute */
-#lock .box{max-width:340px;width:100%;text-align:center;}
-#lock h1{font-size:var(--fs-h1);color:var(--amber);letter-spacing:.14em;text-transform:uppercase;margin:0 0 6px;}
-#lock p{color:var(--text-muted);font-size:var(--fs-small);margin:0 0 16px;line-height:1.5;}
-#lock input{width:100%;background:var(--surface-2);border:1px solid var(--grid-strong);
-  color:var(--text-primary);padding:11px 12px;font-family:var(--font-mono);font-size:16px;
-  border-radius:var(--radius);margin-bottom:9px;}
-#lock input:focus{outline:1px solid var(--amber);}
-#lock button{width:100%;background:var(--amber);color:var(--amber-ink);border-color:var(--amber);
-  font-weight:700;padding:11px;}
-#lock .err{color:var(--down);font-size:var(--fs-tiny);min-height:1.2em;margin-top:8px;}
 /* --- the tape --- */
 .spark{display:block;width:62px;height:20px;overflow:visible;}
 .spark .ln{fill:none;stroke:var(--text-secondary);stroke-width:1.5;}
@@ -255,17 +220,6 @@ details[open] summary::after{content:" \\2212";}
   .hide-s{display:none;}
   .chips{grid-template-columns:repeat(2,1fr);}
 }
-"""
-
-LOCK = """
-<div id="lock" hidden><div class="box">
-  <h1>Pike EV</h1>
-  <p>This page is public; the numbers are not. Enter the passphrase to unlock.</p>
-  <input id="pass" type="password" autocomplete="current-password" placeholder="passphrase"
-         enterkeyhint="go" autofocus>
-  <button id="unlock">Unlock</button>
-  <div class="err" id="lockerr"></div>
-</div></div>
 """
 
 BODY = """
@@ -354,9 +308,20 @@ function json(url){
 
 /* Served from GitHub Pages the model data sits beside the page and is rewritten
    by the scheduled job; opened from disk those fetches fail and the bake stands. */
+/* Served beside its data files (which the scheduled run rewrites), the page
+   picks up fresh numbers without being rebuilt. Opened from a disk those fetches
+   fail and the bake stands. */
 function pullBake(){
-  /* a local build already has everything baked in; a locked one loads via unlock() */
-  return Promise.resolve();
+  if(location.protocol === "file:") return Promise.resolve();
+  return Promise.all([json("ev_season.json").catch(function(){ return null; }),
+                      json("ev_history.json").catch(function(){ return null; })])
+    .then(function(res){
+      if(res[0] && res[0].teams && (!dataStamp || res[0].generated_at >= dataStamp)){
+        params = res[0]; dataStamp = params.generated_at;
+        baked = {}; params.weeks.forEach(function(w){ baked[w.week] = w.state; });
+      }
+      if(res[1] && res[1].at) hist = res[1];
+    });
 }
 
 var PRO_TEAMS = null;      /* the pro schedule barely changes: fetch once */
@@ -808,134 +773,43 @@ function detail(t){
     '<div class="pt-mono-label" style="margin-top:7px">Full-strength lineup</div>' + lineup;
 }
 
-/* ---------- the lock: published builds carry no data, only ciphertext ---------- */
-var KEY = null, LOCKED = __LOCKED__, STORE = "pike-ev-pass";
-
-function b64(s){ return Uint8Array.from(atob(s), function(c){ return c.charCodeAt(0); }); }
-
-function deriveKey(pass, salt, iter){
-  return crypto.subtle.importKey("raw", new TextEncoder().encode(pass), "PBKDF2",
-                                 false, ["deriveKey"])
-    .then(function(km){
-      return crypto.subtle.deriveKey(
-        {name: "PBKDF2", salt: b64(salt), iterations: iter, hash: "SHA-256"},
-        km, {name: "AES-GCM", length: 256}, false, ["decrypt"]);
-    });
-}
-
-function openBlob(blob, pass){
-  /* the salt is stable across runs, so the key derives once per page load */
-  var keyReady = KEY ? Promise.resolve(KEY)
-                     : deriveKey(pass, blob.salt, blob.iter).then(function(k){ KEY = k; return k; });
-  return keyReady.then(function(key){
-    return crypto.subtle.decrypt({name: "AES-GCM", iv: b64(blob.iv)}, key, b64(blob.ct));
-  }).then(function(buf){ return JSON.parse(new TextDecoder().decode(buf)); });
-}
-
-function unlock(pass){
-  KEY = null;
-  return json("ev_season.json.enc")
-    .then(function(blob){ return openBlob(blob, pass); })
-    .then(function(p){
-      params = p; dataStamp = p.generated_at;
-      baked = {}; params.weeks.forEach(function(w){ baked[w.week] = w.state; });
-      return json("ev_history.json.enc")
-        .then(function(hb){ return openBlob(hb, pass); })
-        .then(function(h){ hist = h; })
-        .catch(function(){ /* the tape is optional */ });
-    })
-    .then(function(){
-      try { localStorage.setItem(STORE, pass); } catch(e) {}
-      el("lock").hidden = true;
-      lastOk = new Date().toISOString();
-      run();
-      pullLive().catch(function(){ feedOk = false; })
-        .then(function(){ lastOk = new Date().toISOString(); run(); });
-    });
-}
-
-function boot(){
-  if(!LOCKED){ run(); refresh(); return; }
-  el("lock").hidden = false;
-  var saved = null;
-  try { saved = localStorage.getItem(STORE); } catch(e) {}
-  var submit = function(){
-    var pass = el("pass").value;
-    if(!pass) return;
-    el("lockerr").textContent = "unlocking…";
-    unlock(pass).catch(function(e){
-      KEY = null;
-      el("lockerr").textContent = (e && e.name === "OperationError")
-        ? "Wrong passphrase." : "Could not load the data.";
-    });
-  };
-  el("unlock").onclick = submit;
-  el("pass").addEventListener("keydown", function(e){ if(e.key === "Enter") submit(); });
-  if(saved){ el("pass").value = saved; submit(); }
-}
-
 /* ---------- boot ---------- */
-function doRefresh(){
-  if(busy) return Promise.resolve();
-  if(!LOCKED) return refresh();
-  var pass = null; try { pass = localStorage.getItem(STORE); } catch(e) {}
-  if(!pass) return Promise.resolve();
-  busy = true; paint();                       /* say so, so a tap visibly lands */
-  return unlock(pass)
-    .then(function(){ feedOk = true; })
-    .catch(function(e){ feedOk = false; console.warn("refresh", e); })
-    .then(function(){ busy = false; lastOk = new Date().toISOString(); paint(); });
-}
-
-el("refresh").onclick = function(){ doRefresh(); };
+el("refresh").onclick = function(){ refresh(); };
 el("ticker").onclick = function(){ el("ticker").classList.toggle("paused"); };
 document.addEventListener("visibilitychange", function(){
   if(!document.hidden && Date.now() - new Date(lastOk).getTime() > 60000) refresh();
 });
-boot();
+run();
+refresh();
 setInterval(function(){          /* cycle the hero until someone claims a team */
   if(MINE || !result) return;
-  if(LOCKED && el("lock").hidden === false) return;
   rotateAt += 1;
   paintHero(result.teams.slice().sort(function(a, b){ return b.ev_usd - a.ev_usd; }));
 }, 6000);
 
 setInterval(function(){
-  if(LOCKED && el("lock").hidden === false) return;
   var live = params.weeks.filter(function(w){ return w.state === "live"; })[0];
-  if(live || Date.now() - new Date(lastOk).getTime() > 600000) doRefresh();
+  if(live || Date.now() - new Date(lastOk).getTime() > 600000) refresh();
 }, 60000);
 """
 
 
-def build(locked: bool = False) -> str:
+def build() -> str:
     """`locked` builds the published page: no data baked in, only a lock screen
     and the fetchers for the encrypted files beside it."""
     params = json.loads(PARAMS.read_text())
     history = load_tape(params["season"])
     engine = (REPO / "scripts" / "ev_sim.js").read_text()
-    if locked:
-        # the shell must carry NOTHING but the league's shape: no priors, no
-        # results, no tape. Everything real arrives encrypted.
-        # note what is NOT in this list: league_id, read_base, teams, weeks,
-        # model, generated_at. The published shell cannot even name the league.
-        params = {k: v for k, v in params.items()
-                  if k in ("season", "reg_season_weeks", "current_week", "sigma",
-                           "tau_prior", "share_usd", "payout_usd")}
-        params.update(teams=[], weeks=[], model={}, generated_at="")
-        history = {"season": params["season"], "at": [], "week": [], "recon": [], "series": {}}
     share = int(params["share_usd"])
-    body = ((LOCK if locked else "") + BODY).replace("$SHARE", f"${share}")
-    body = (body.replace("$SHARE", f"${share}")
+    body = (BODY.replace("$SHARE", f"${share}")
                 .replace("$P1", f"{share*7:,}")
                 .replace("$P2", f"{share*2:,}")
                 .replace("$ENTRY", f"{share:,}"))
-    script = (SCRIPT.replace("__LOCKED__", "true" if locked else "false")
-                    .replace("__PARAMS__", json.dumps(params, separators=(",", ":")))
+    script = (SCRIPT.replace("__PARAMS__", json.dumps(params, separators=(",", ":")))
                     .replace("__HISTORY__", json.dumps(history, separators=(",", ":")))
                     .replace("__SIMS__", str(SIMS)))
     week = params["current_week"]
-    title = f"Pike EV — {params['season']} week {week}" if not locked else "Pike EV"
+    title = f"Pike EV — {params['season']} week {week}"
     return (head(title, CSS) + body
             + "<script>" + engine + "</script>"
             + "<script>" + script + "</script>"
@@ -944,18 +818,13 @@ def build(locked: bool = False) -> str:
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--local", action="store_true",
-                    help="bake the plaintext in, for opening off your own disk "
-                         "(NEVER publish this build)")
     ap.add_argument("--out", type=Path, default=OUT)
     args = ap.parse_args()
 
-    locked = not args.local
     args.out.parent.mkdir(parents=True, exist_ok=True)
-    args.out.write_text(build(locked=locked))
+    args.out.write_text(build())
     kb = args.out.stat().st_size / 1024
-    print(f"[page] {args.out.name}  ({kb:.0f} KB, {SIMS} sims/run, "
-          f"{'locked' if locked else 'LOCAL PLAINTEXT'})")
+    print(f"[page] {args.out.name}  ({kb:.0f} KB, {SIMS} sims/run)")
 
 
 if __name__ == "__main__":

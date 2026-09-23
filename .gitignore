@@ -1,6 +1,5 @@
-# The plaintext payload NEVER gets committed — this repository is public.
+# Rebuilt from ESPN on every run, so there is nothing to keep in git.
 data/params.json
-data/ev_history.json
 _site/
 *.local.html
 

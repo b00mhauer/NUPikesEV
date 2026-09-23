@@ -4,23 +4,16 @@
 # point to the tape if anything moved, and republish the page. No machine of ours
 # has to be awake.
 #
-# THIS REPOSITORY IS PUBLIC (Pages on the free tier requires it), which shapes
-# every step below:
-#   * the tape is committed ENCRYPTED; plaintext never reaches a commit
-#   * every script prints counts, never a team, an owner or a dollar figure,
-#     because Actions logs on a public repo are world-readable
-#   * the page publishes as a lock screen plus ciphertext
-#   * the workflow refuses to run at all without the passphrase
+# THE PAGE IS OPEN. There is no password: anyone with the link sees the league,
+# and since this repository is public so is everything in it. That is a decision,
+# not an oversight — the audience is the whole league and the friction was not
+# worth it. Nothing here is a credential; the model reads ESPN's public league
+# endpoints and writes numbers.
 #
 # ── one-time setup ────────────────────────────────────────────────────────────
 #  1. Settings → Pages → Source: **GitHub Actions**
-#  2. Settings → Secrets and variables → Actions → New repository secret:
-#       EV_PASSPHRASE    the phrase that unlocks the page (8+ chars, and NOT the
-#                        nupikes.com site password — that one is meant to reach
-#                        leaguemates)
+#  2. Settings → Secrets and variables → Actions → Variables:
 #       ESPN_LEAGUE_ID   the league id
-#       EV_OWNER         the surname whose card sits at the top (e.g. Parrott)
-#  3. Settings → Secrets and variables → Actions → Variables:
 #       ESPN_SEASON      e.g. 2026
 name: Publish EV
 
@@ -52,10 +45,9 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  ESPN_LEAGUE_ID: ${{ secrets.ESPN_LEAGUE_ID }}
+  # a variable is enough now; a secret with the same name still works
+  ESPN_LEAGUE_ID: ${{ vars.ESPN_LEAGUE_ID || secrets.ESPN_LEAGUE_ID }}
   ESPN_SEASON: ${{ vars.ESPN_SEASON || 2026 }}
-  EV_OWNER: ${{ secrets.EV_OWNER }}
-  EV_PASSPHRASE: ${{ secrets.EV_PASSPHRASE }}
 
 jobs:
   publish:
@@ -71,15 +63,10 @@ jobs:
       - name: Install
         run: pip install --quiet -r requirements.txt
 
-      - name: Refuse to publish in the clear
+      - name: Check the league is configured
         run: |
-          if [ -z "$EV_PASSPHRASE" ]; then
-            echo "::error::EV_PASSPHRASE is not set. This site is PUBLIC; without it"
-            echo "::error::the league's numbers would be readable by anyone."
-            exit 1
-          fi
           if [ -z "$ESPN_LEAGUE_ID" ]; then
-            echo "::error::ESPN_LEAGUE_ID is not set."
+            echo "::error::ESPN_LEAGUE_ID is not set (Settings → Variables)."
             exit 1
           fi
 
@@ -90,7 +77,7 @@ jobs:
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add data/ev_history.json.enc
+          git add data/ev_history.json
           if git diff --cached --quiet; then
             echo "nothing moved"
           else
@@ -101,24 +88,10 @@ jobs:
       - name: Build the page
         run: |
           python scripts/build_app.py --out _site/index.html
-          python scripts/crypt.py lock data/params.json _site/ev_season.json.enc
-          cp data/ev_history.json.enc _site/ev_history.json.enc
+          cp data/params.json _site/ev_season.json
+          cp data/ev_history.json _site/ev_history.json
+          # open to anyone with the link, but not worth putting in a search index
           printf 'User-agent: *\nDisallow: /\n' > _site/robots.txt
-
-      - name: Nothing leaves in the clear
-        run: |
-          # look for the SHAPE of the data (a JSON key with its colon) rather than
-          # words that also appear in the engine's own source
-          if grep -rlE '"(prior_weekly|prior_playoff|owner|injuries|league_id)":' _site \
-               --include="*.json" --include="*.html" | grep -q .; then
-            echo "::error::plaintext league data found in _site — refusing to deploy"
-            exit 1
-          fi
-          if [ -f data/params.json ] && git ls-files --error-unmatch data/params.json 2>/dev/null; then
-            echo "::error::data/params.json is tracked by git. It must stay ignored."
-            exit 1
-          fi
-          echo "clean"
 
       - uses: actions/upload-pages-artifact@v3
         with:

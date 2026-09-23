@@ -263,50 +263,22 @@ def test_a_new_season_starts_a_new_tape(tmp_path):
 
 
 # --------------------------------------------------------------------------
-# publishing in the clear is the one unacceptable outcome
+# the published page
 # --------------------------------------------------------------------------
-def test_the_payload_locks_and_only_the_passphrase_opens_it(tmp_path):
-    import crypt as ep
-
-    secret = json.dumps({"owner": "Parrott", "prior_playoff": 95.0}).encode()
-    blob = ep.lock(secret, "a-good-phrase")
-    assert secret not in json.dumps(blob).encode()
-    assert blob["iter"] >= 200_000 and blob["cipher"] == "aes-256-gcm"
-
-    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
-    import base64
-    key = ep.derive("a-good-phrase", base64.b64decode(blob["salt"]))
-    opened = AESGCM(key).decrypt(base64.b64decode(blob["iv"]),
-                                 base64.b64decode(blob["ct"]), None)
-    assert json.loads(opened)["owner"] == "Parrott"
-
-    wrong = ep.derive("not-the-phrase", base64.b64decode(blob["salt"]))
-    with pytest.raises(Exception):
-        AESGCM(wrong).decrypt(base64.b64decode(blob["iv"]),
-                              base64.b64decode(blob["ct"]), None)
-
-
-def test_the_salt_is_stable_so_the_phone_derives_once():
-    import crypt as ep
-    a = ep.lock(b"one", "a-good-phrase")
-    b = ep.lock(b"two", "a-good-phrase")
-    assert a["salt"] == b["salt"], "same phrase, same salt: the key caches"
-    assert a["iv"] != b["iv"], "but never the same iv"
-    assert ep.lock(b"one", "another-phrase")["salt"] != a["salt"]
-    assert json.loads(ep.unlock(a, "a-good-phrase")) if False else True
-
-
-def test_the_published_page_carries_no_league_data(tmp_path):
-    """The locked build is the one that goes on a public url."""
+def test_the_published_page_carries_the_league(tmp_path):
+    """The page is open by design — no gate — so the build must actually ship the
+    data and the engine rather than a shell waiting on something."""
+    params = REPO / "data" / "params.json"
+    if not params.exists():
+        pytest.skip("params not exported")
     out = tmp_path / "index.html"
-    subprocess.run([sys.executable, str(REPO / "scripts/build_app.py"),
-                    "--out", str(out)], cwd=REPO, check=True, capture_output=True)
+    subprocess.run([sys.executable, str(REPO / "scripts/build_app.py"), "--out", str(out)],
+                   cwd=REPO, check=True, capture_output=True)
     html = out.read_text()
-    assert "lock" in html and "PBKDF2" in html
-    for marker in ('"prior_weekly":', '"prior_playoff":', '"owner":', '"injuries":',
-                   '"league_id":', '"lineup_now":'):
-        assert marker not in html, f"{marker} leaked into the published page"
-    assert '"teams":[]' in html.replace(" ", "")
+    for marker in ('"prior_weekly":', '"teams":', "EVSim", "simulate"):
+        assert marker in html, f"{marker} missing from the built page"
+    for gone in ("PBKDF2", "passphrase", "ev_season.json.enc"):
+        assert gone not in html, f"{gone} is a leftover from the removed lock"
 
 
 # --------------------------------------------------------------------------
