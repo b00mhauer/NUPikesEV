@@ -253,7 +253,7 @@ BODY = """
  </section>
 
  <section class="pt-panel" id="moverspanel" hidden>
-  <header>Movers<span class="sub">since last week</span></header>
+  <header>Movers<span class="sub" id="moversub">last 24 hours</span></header>
   <div class="movers" id="movers"></div>
  </section>
 
@@ -412,7 +412,9 @@ function changeOver(tid, secs){
   var span = w.at[w.at.length - 1] - w.at[0];
   return {d: w.vals[w.vals.length - 1] - w.vals[0],
           hours: Math.max(1, Math.round(span / 3600)),
-          short: secs !== null && span < secs * 0.75,
+          /* not a faithful window: either the tape is too young to fill it, or we
+             anchored past its edge to have two points. Say the span we really cover. */
+          short: secs !== null && (!w.exact || span < secs * 0.75),
           fromRecon: !!w.recon[0]};
 }
 
@@ -445,10 +447,15 @@ function sparkline(tid){
 
 /* Stock-tape ranges. One selection shared by every open panel -- simpler than
    per-team state, and switching re-renders the chart in place rather than
-   repainting, so the panel you are reading stays open. NOTE the tape is thinned
-   after 14 days (ev_history.KEEP_DENSE_DAYS), so 1H and 1D are dense while ALL
-   gets sparser the further back you look. */
-var RANGES = [["1H", 3600], ["1D", 86400], ["1W", 604800], ["ALL", null]];
+   repainting, so the panel you are reading stays open. The tape is thinned after
+   14 days (ev_history.KEEP_DENSE_DAYS), so the short ranges are dense while ALL
+   gets sparser the further back you look.
+
+   The shortest range is 6H, not 1H. A point is only written when the number moves
+   $2 or the 6h heartbeat fires, and off-peak the job runs every 3 hours -- so an
+   hour of tape holds one point six days a week and 1H sat permanently greyed.
+   6H matches the heartbeat, which is the shortest window the tape can fill. */
+var RANGES = [["6H", 21600], ["1D", 86400], ["1W", 604800], ["ALL", null]];
 var chartRange = "ALL";
 
 /* Which panels the reader has open, by team id. paint() rebuilds the whole table,
@@ -459,13 +466,19 @@ var openRows = {};
 
 function windowed(tid, secs){
   var vals = series(tid, "ev"), at = hist.at || [], recon = hist.recon || [];
-  if(at.length !== vals.length) return {vals: vals, at: at, recon: recon};
-  if(secs === null) return {vals: vals, at: at, recon: recon};
-  var cut = at[at.length - 1] - secs, v = [], a = [], r = [];
-  for(var i = 0; i < vals.length; i++){
-    if(at[i] >= cut){ v.push(vals[i]); a.push(at[i]); r.push(recon[i]); }
-  }
-  return {vals: v, at: a, recon: r};
+  if(at.length !== vals.length) return {vals: vals, at: at, recon: recon, exact: true};
+  if(secs === null) return {vals: vals, at: at, recon: recon, exact: true};
+  var cut = at[at.length - 1] - secs, first = -1;
+  for(var i = 0; i < vals.length; i++){ if(at[i] >= cut){ first = i; break; } }
+  if(first < 0) first = vals.length - 1;
+  /* A window holding one point cannot draw a line, and with a 6h heartbeat that
+     happens whenever the previous point sits just outside. Reach back one further
+     so the line enters from the left edge, and flag it: the span is then wider
+     than the range asked for, which the label has to say rather than round away. */
+  var exact = true;
+  if(vals.length - first < 2 && first > 0){ first -= 1; exact = false; }
+  return {vals: vals.slice(first), at: at.slice(first),
+          recon: recon.slice(first), exact: exact};
 }
 
 /* One place builds the panel's chart block, so the click redraw and the first
@@ -704,7 +717,7 @@ function heroDay(tid){
          fmtUsd(x.d) + ' 24h</span>';
 }
 
-var RANGE_LABEL = {"1H": "last hour", "1D": "last 24 hours",
+var RANGE_LABEL = {"6H": "last 6 hours", "1D": "last 24 hours",
                    "1W": "last week", "ALL": "season to date"};
 
 /* Reads the selected range, so tapping 1H / 1D / 1W / ALL re-answers the
@@ -819,17 +832,45 @@ function chip(k, v, cls){
 
 /* Who gained and who bled since the last completed week — the league's tape,
    reduced to the two lines people actually repeat to each other. */
+/* Movers keeps its own range, separate from the chart's: you may well want the
+   season shape on one team's line while the board shows who moved in the last
+   6 hours. Default is the day. */
+var moverRange = "1D";
+
 function paintMovers(teams){
-  var rows = teams.map(function(t){
-    return {t: t, d: sinceWeekStart(t.team_id)};
-  }).filter(function(r){ return r.d !== null && Math.abs(r.d) >= 1; });
-  if (rows.length < 2){ el("moverspanel").hidden = true; return; }
+  var secs = null;
+  RANGES.forEach(function(pr){ if(pr[0] === moverRange) secs = pr[1]; });
+
+  /* Nothing to toggle until the tape can difference at all -- better hidden than
+     four dead buttons in week 1. */
+  var usable = teams.some(function(t){ return changeOver(t.team_id, null) !== null; });
+  if(!usable){ el("moverspanel").hidden = true; return; }
+
+  var rows = [];
+  teams.forEach(function(t){
+    var x = changeOver(t.team_id, secs);
+    if(x && Math.abs(x.d) >= 1) rows.push({t: t, d: x.d, short: x.short, hours: x.hours});
+  });
+  el("moversub").textContent = (rows.length && rows[0].short)
+    ? "last " + rows[0].hours + "h of tape" : RANGE_LABEL[moverRange];
+
+  var btns = '<div class="rng">' + RANGES.map(function(pr){
+    return '<button type="button" class="rb mb' + (pr[0] === moverRange ? " on" : "") +
+      '" data-mrange="' + pr[0] + '">' + pr[0] + "</button>";
+  }).join("") + "</div>";
+
+  el("moverspanel").hidden = false;
+  if(!rows.length){
+    el("movers").innerHTML = btns +
+      '<div class="pt-mono-label">nothing moved a dollar in this window.</div>';
+    return;
+  }
   rows.sort(function(a, b){ return b.d - a.d; });
   var show = rows.slice(0, 3).concat(rows.slice(-3)).filter(function(r, i, arr){
     return arr.indexOf(r) === i;
   });
   el("moverspanel").hidden = false;
-  el("movers").innerHTML = show.map(function(r){
+  el("movers").innerHTML = btns + show.map(function(r){
     return '<div class="m"><span class="tm">' + esc(r.t.abbrev) + '</span>' +
       '<span class="d ' + (r.d >= 0 ? "pt-up" : "pt-down") + '">' + fmtUsd(r.d) + "</span>" +
       '<span class="why">' + pct(r.t.p_playoffs, 0) + " playoffs \u00b7 " +
@@ -913,6 +954,15 @@ function detail(t){
 }
 
 /* ---------- boot ---------- */
+/* #movers survives every repaint (only its innerHTML is replaced), so one
+   delegated handler here outlives the buttons it serves. */
+el("movers").onclick = function(e){
+  var b = e.target.closest ? e.target.closest(".mb") : null;
+  if(!b || !result) return;
+  moverRange = b.dataset.mrange;
+  paintMovers(result.teams.slice().sort(function(x, y){ return y.ev_usd - x.ev_usd; }));
+};
+
 el("refresh").onclick = function(){ refresh(); };
 el("ticker").onclick = function(){ el("ticker").classList.toggle("paused"); };
 document.addEventListener("visibilitychange", function(){
