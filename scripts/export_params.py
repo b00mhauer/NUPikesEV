@@ -107,7 +107,8 @@ def build(season: int) -> dict:
                   f"({len(span_ahead)} weeks ahead)")
 
     span = list(range(1, reg_weeks + 1))
-    raw_priors = {tid: roster_strength.weekly_priors(pl, span, current, replacement, scale)
+    rep_week = roster_strength.replacement_by_week(all_players, span, current)
+    raw_priors = {tid: roster_strength.weekly_priors(pl, span, current, rep_week, scale)
                   for tid, pl in rosters.items()}
 
     finished = [(m[side], wk["week"], m[f"{side}_points"])

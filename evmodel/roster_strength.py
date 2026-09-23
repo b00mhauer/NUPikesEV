@@ -61,17 +61,36 @@ def player_week(p: dict, week: int, scale: float = 1.0) -> float:
     return float(p["rate"]) * scale * factor
 
 
+# K and D/ST are rostered almost exactly one per team, so a rank-12 line at
+# those positions lands on the WORST owned player in the league — not a
+# replacement line at all. (config.REPLACEMENT_RANK works for RB/WR because
+# teams carry ~4.5 each, putting rank 30 mid-pool.) Two things say the streamed
+# line belongs near the middle of the pool instead: the position barely predicts
+# itself week to week (own-scoring split-half r = 0.11 D/ST, 0.20 K, against
+# 0.30-0.36 for QB/RB/WR), so one of them is close to interchangeable with
+# another; and measured over 3,854 pickup-starts, 2018-2025, a streamed D/ST
+# scored 8.1 and a streamed K 8.2 — the same as league-wide ROSTERED starters at
+# those positions (8.1 and 8.4). Rank 12 priced a D/ST hole at 5.5 against a 7.0
+# projection for starters, i.e. a hole was cheaper than reality by ~1.5/week.
+STREAMED_AT_MEDIAN = ("K", "DST")
+
+
 def replacement_levels(all_players: list[dict]) -> dict[str, float]:
-    """The weekly line of the last startable player at each position, league-wide
-    — the same baseline the board ranks in (config.REPLACEMENT_RANK), which is
-    roughly what a manager can stream into a hole."""
+    """The weekly line a manager can stream into a hole, per position.
+
+    For the positions the board ranks in (config.REPLACEMENT_RANK) this is the
+    last startable player league-wide. For K/D/ST — rostered ~1 per team, and
+    close to interchangeable — it is the median of the rostered pool; see
+    STREAMED_AT_MEDIAN above for the evidence."""
     out = {}
-    ranks = dict(config.REPLACEMENT_RANK)
-    ranks.setdefault("K", 12)
-    ranks.setdefault("DST", 12)
-    for pos, rank in ranks.items():
+    for pos in list(config.REPLACEMENT_RANK) + list(STREAMED_AT_MEDIAN):
         pool = sorted((p["rate"] for p in all_players if p["pos"] == pos), reverse=True)
-        out[pos] = pool[min(rank, len(pool)) - 1] if pool else 0.0
+        if not pool:
+            out[pos] = 0.0
+            continue
+        rank = (len(pool) + 1) // 2 if pos in STREAMED_AT_MEDIAN \
+            else config.REPLACEMENT_RANK[pos]
+        out[pos] = pool[min(rank, len(pool)) - 1]
     return out
 
 
@@ -113,9 +132,25 @@ def lineup(players: list[dict], week: int, current_week: int,
     return total, picked
 
 
+def replacement_by_week(all_players: list[dict], weeks: list[int],
+                        current_week: int) -> dict[int, dict[str, float]]:
+    """The streaming line, recomputed for each week's PLAYABLE pool.
+
+    A bye is usually the reason a slot is empty in the first place, and the same
+    bye thins the pool you would stream from — so a season-long line reads too
+    generous in exactly the weeks it gets used. Measured on the live league, a
+    static K line sat 0.3-0.9 above that week's playable median in 8 of 12
+    remaining weeks."""
+    return {w: replacement_levels([p for p in all_players
+                                   if espn_live.playable(p, w, current_week)])
+            for w in weeks}
+
+
 def weekly_priors(players: list[dict], weeks: list[int], current_week: int,
-                  replacement: dict[str, float], scale: float = 1.0) -> dict[int, float]:
-    return {w: lineup(players, w, current_week, replacement, scale=scale)[0]
+                  replacement: dict[int, dict[str, float]],
+                  scale: float = 1.0) -> dict[int, float]:
+    """`replacement` is per-week (see replacement_by_week)."""
+    return {w: lineup(players, w, current_week, replacement[w], scale=scale)[0]
             for w in weeks}
 
 
