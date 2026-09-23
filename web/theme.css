@@ -1,0 +1,148 @@
+/* ==========================================================================
+   NU PIKES — "PIKE TERMINAL" design system  (Bloomberg-terminal aesthetic)
+   Dark-only by design. Import this into any HTML artifact and build against the
+   role tokens below, never raw hex. Categorical palette validated CVD-safe
+   (dataviz skill, dark, surface #0b0e11 — all checks pass).
+   Self-contained: system fonts only (Artifact CSP blocks external fonts).
+   ========================================================================== */
+
+:root {
+  /* --- surfaces (near-black, panel steps) --- */
+  --bg:            #07090c;   /* page backdrop */
+  --surface-1:     #0b0e11;   /* primary panel / chart surface (validator surface) */
+  --surface-2:     #12161c;   /* raised panel / table header row */
+  --surface-3:     #1a2028;   /* hover / selected row */
+  --grid:          #232a33;   /* gridlines, dividers, panel borders (recessive) */
+  --grid-strong:   #35404c;   /* stronger rule under headers */
+
+  /* --- ink (text wears text tokens, never a series color) --- */
+  --text-primary:   #e8ebf0;  /* primary data/ink */
+  --text-secondary: #9aa4b2;  /* labels, secondary */
+  --text-muted:     #626d7d;  /* axes, captions, de-emphasized */
+
+  /* --- brand: Bloomberg amber. UI chrome, key numbers, focus, headers --- */
+  --amber:         #ffb020;   /* bright amber for chrome/emphasis (large text/accents only) */
+  --amber-dim:     #c98500;   /* in-band amber = categorical slot 1 */
+  --amber-ink:     #0a0a0a;   /* text ON amber fills */
+
+  /* --- categorical palette (validated order; assign in FIXED order, never cycle) --- */
+  --series-1: #c98500;  /* amber   */
+  --series-2: #16a6a6;  /* cyan    */
+  --series-3: #3987e5;  /* blue    */
+  --series-4: #1e9e5a;  /* green   */
+  --series-5: #d55181;  /* magenta */
+  --series-6: #9085e9;  /* violet  */
+  --series-7: #e05a5a;  /* red     */
+  --series-8: #db6a28;  /* orange  */
+
+  /* --- fantasy positions (a fixed categorical mapping, drawn from the validated
+         palette; amber is reserved for chrome so positions avoid it) --- */
+  --pos-qb: var(--series-3);  /* blue   */
+  --pos-rb: var(--series-4);  /* green  */
+  --pos-wr: var(--series-8);  /* orange */
+  --pos-te: var(--series-6);  /* violet */
+
+  /* --- status (reserved — never reuse as a series; ship with icon+label) --- */
+  --good:     #0ca30c;
+  --warning:  #fab219;
+  --serious:  #ec835a;
+  --critical: #d03b3b;
+
+  /* --- financial up/down + diverging (THE grading colors: +surplus green, −overpay red)
+         diverging arm poles + neutral gray midpoint for surplus-vs-perfect heat --- */
+  --up:        #26c281;   /* positive / value / steal (late pick) */
+  --down:      #e0524f;   /* negative / overpay / reach (early pick) */
+  --diverge-neg: #e0524f; /* red arm  */
+  --diverge-mid: #383835; /* neutral (reads as "nothing") */
+  --diverge-pos: #26c281; /* green arm */
+
+  /* --- sequential (single hue, light→dark) for magnitude heat: amber ramp --- */
+  --seq-100:#f6dca6; --seq-300:#e0a94a; --seq-500:#c98500; --seq-700:#7c5200;
+
+  /* --- type: monospace-forward terminal. System stack only (no external fonts). --- */
+  --font-mono: ui-monospace, "SFMono-Regular", "Cascadia Mono", "Segoe UI Mono",
+               "Menlo", "Consolas", "Liberation Mono", monospace;
+  --font-sans: "Inter", ui-sans-serif, system-ui, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --fs-mega: 2.6rem; --fs-h1: 1.5rem; --fs-h2: 1.1rem; --fs-body: 0.9rem;
+  --fs-small: 0.78rem; --fs-tiny: 0.68rem;
+
+  /* --- geometry: dense, sharp. Bloomberg is boxy — minimal radius. --- */
+  --radius: 2px; --gap: 12px; --pad: 10px 12px;
+  --border: 1px solid var(--grid);
+}
+
+/* ---------- base ---------- */
+.pt-root, body.pt {
+  background: var(--bg); color: var(--text-primary);
+  font-family: var(--font-mono); font-size: var(--fs-body);
+  font-variant-numeric: tabular-nums; letter-spacing: 0.01em;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ---------- panels (the terminal "cell") ---------- */
+.pt-panel { background: var(--surface-1); border: var(--border); border-radius: var(--radius); }
+.pt-panel > header, .pt-panel-header {
+  display: flex; justify-content: space-between; align-items: baseline;
+  background: var(--surface-2); border-bottom: 1px solid var(--grid-strong);
+  padding: 6px 12px; color: var(--amber);
+  font-size: var(--fs-small); text-transform: uppercase; letter-spacing: 0.09em;
+}
+.pt-panel-body { padding: var(--pad); }
+
+/* ---------- dense data table (numbers right-aligned, tabular) ---------- */
+.pt-table { width: 100%; border-collapse: collapse; font-size: var(--fs-small); }
+.pt-table th {
+  text-align: right; color: var(--text-secondary); font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.06em; font-size: var(--fs-tiny);
+  padding: 5px 10px; border-bottom: 1px solid var(--grid-strong); position: sticky; top: 0;
+  background: var(--surface-2);
+}
+.pt-table th:first-child, .pt-table td:first-child { text-align: left; }
+.pt-table td { padding: 4px 10px; border-bottom: 1px solid var(--grid); white-space: nowrap; }
+.pt-table tr:hover td { background: var(--surface-3); }
+.pt-num { font-variant-numeric: tabular-nums; text-align: right; }
+
+/* ---------- stat tile / KPI (hero number) ---------- */
+.pt-stat { display: flex; flex-direction: column; gap: 2px; padding: var(--pad); }
+.pt-stat .label { color: var(--text-secondary); font-size: var(--fs-tiny);
+  text-transform: uppercase; letter-spacing: 0.08em; }
+.pt-stat .value { color: var(--text-primary); font-size: var(--fs-mega); line-height: 1; }
+.pt-stat .value.amber { color: var(--amber); }
+
+/* ---------- up/down deltas (financial + grading surplus) ---------- */
+.pt-up   { color: var(--up); }
+.pt-down { color: var(--down); }
+.pt-up::before   { content: "\25B2 "; }   /* ▲ */
+.pt-down::before { content: "\25BC "; }   /* ▼ */
+
+/* ---------- grade badge (A–F, for draft grades) ---------- */
+.pt-badge { display: inline-block; min-width: 1.6em; text-align: center;
+  padding: 1px 6px; border-radius: var(--radius); font-weight: 700;
+  color: var(--amber-ink); }
+.pt-badge.a { background: var(--up); }
+.pt-badge.b { background: #7bc47f; }
+.pt-badge.c { background: var(--warning); }
+.pt-badge.d { background: var(--serious); }
+.pt-badge.f { background: var(--down); }
+
+/* ---------- position chip (QB/RB/WR/TE) — categorical identity ---------- */
+.pt-pos { display: inline-block; font-size: var(--fs-tiny); font-weight: 700;
+  padding: 0 4px; border-radius: var(--radius); color: var(--amber-ink);
+  vertical-align: middle; }
+.pt-pos.qb { background: var(--pos-qb); }
+.pt-pos.rb { background: var(--pos-rb); }
+.pt-pos.wr { background: var(--pos-wr); }
+.pt-pos.te { background: var(--pos-te); }
+
+/* ---------- ticker strip ---------- */
+.pt-ticker { display: flex; gap: 20px; background: var(--surface-2);
+  border-bottom: 1px solid var(--grid-strong); padding: 5px 12px;
+  font-size: var(--fs-small); overflow-x: auto; }
+.pt-ticker .item { color: var(--text-secondary); }
+.pt-ticker .item b { color: var(--text-primary); }
+
+/* ---------- chrome bits ---------- */
+.pt-rule { border: none; border-top: 1px solid var(--grid); margin: var(--gap) 0; }
+a.pt-link, .pt-accent { color: var(--amber); text-decoration: none; }
+.pt-mono-label { color: var(--text-muted); font-size: var(--fs-tiny);
+  text-transform: uppercase; letter-spacing: 0.08em; }

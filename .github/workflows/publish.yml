@@ -1,0 +1,135 @@
+# The EV model, running on GitHub.
+#
+# Every run: pull the live league off ESPN, re-price all twelve seasons, append a
+# point to the tape if anything moved, and republish the page. No machine of ours
+# has to be awake.
+#
+# THIS REPOSITORY IS PUBLIC (Pages on the free tier requires it), which shapes
+# every step below:
+#   * the tape is committed ENCRYPTED; plaintext never reaches a commit
+#   * every script prints counts, never a team, an owner or a dollar figure,
+#     because Actions logs on a public repo are world-readable
+#   * the page publishes as a lock screen plus ciphertext
+#   * the workflow refuses to run at all without the passphrase
+#
+# ── one-time setup ────────────────────────────────────────────────────────────
+#  1. Settings → Pages → Source: **GitHub Actions**
+#  2. Settings → Secrets and variables → Actions → New repository secret:
+#       EV_PASSPHRASE    the phrase that unlocks the page (8+ chars, and NOT the
+#                        nupikes.com site password — that one is meant to reach
+#                        leaguemates)
+#       ESPN_LEAGUE_ID   the league id
+#       EV_OWNER         the surname whose card sits at the top (e.g. Parrott)
+#  3. Settings → Secrets and variables → Actions → Variables:
+#       ESPN_SEASON      e.g. 2026
+name: Publish EV
+
+on:
+  schedule:
+    # game windows, UTC (ET + 4). Minutes offset off :00, which GitHub queues hardest.
+    - cron: "3,18,33,48 17-23 * * 0"    # Sunday afternoon
+    - cron: "3,18,33,48 0-4 * * 1"      # Sunday night
+    - cron: "3,18,33,48 0-4 * * 2"      # Monday night
+    - cron: "3,18,33,48 0-4 * * 5"      # Thursday night
+    # the rest of the week: waivers, trades and injury news move the number too
+    - cron: "23 */3 * * *"
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "evmodel/**"
+      - "scripts/**"
+      - "web/**"
+      - ".github/workflows/publish.yml"
+
+permissions:
+  contents: write      # to commit the encrypted tape
+  pages: write
+  id-token: write
+
+concurrency:
+  group: ev-publish
+  cancel-in-progress: false
+
+env:
+  ESPN_LEAGUE_ID: ${{ secrets.ESPN_LEAGUE_ID }}
+  ESPN_SEASON: ${{ vars.ESPN_SEASON || 2026 }}
+  EV_OWNER: ${{ secrets.EV_OWNER }}
+  EV_PASSPHRASE: ${{ secrets.EV_PASSPHRASE }}
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install
+        run: pip install --quiet -r requirements.txt
+
+      - name: Refuse to publish in the clear
+        run: |
+          if [ -z "$EV_PASSPHRASE" ]; then
+            echo "::error::EV_PASSPHRASE is not set. This site is PUBLIC; without it"
+            echo "::error::the league's numbers would be readable by anyone."
+            exit 1
+          fi
+          if [ -z "$ESPN_LEAGUE_ID" ]; then
+            echo "::error::ESPN_LEAGUE_ID is not set."
+            exit 1
+          fi
+
+      - name: Price the season
+        run: python scripts/record_snapshot.py
+
+      - name: Commit the tape
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/ev_history.json.enc
+          if git diff --cached --quiet; then
+            echo "nothing moved"
+          else
+            git commit -m "tape: snapshot $(date -u +'%Y-%m-%d %H:%M UTC') [skip ci]"
+            git push
+          fi
+
+      - name: Build the page
+        run: |
+          python scripts/build_app.py --out _site/index.html
+          python scripts/crypt.py lock data/params.json _site/ev_season.json.enc
+          cp data/ev_history.json.enc _site/ev_history.json.enc
+          printf 'User-agent: *\nDisallow: /\n' > _site/robots.txt
+
+      - name: Nothing leaves in the clear
+        run: |
+          # look for the SHAPE of the data (a JSON key with its colon) rather than
+          # words that also appear in the engine's own source
+          if grep -rlE '"(prior_weekly|prior_playoff|owner|injuries|league_id)":' _site \
+               --include="*.json" --include="*.html" | grep -q .; then
+            echo "::error::plaintext league data found in _site — refusing to deploy"
+            exit 1
+          fi
+          if [ -f data/params.json ] && git ls-files --error-unmatch data/params.json 2>/dev/null; then
+            echo "::error::data/params.json is tracked by git. It must stay ignored."
+            exit 1
+          fi
+          echo "clean"
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    needs: publish
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - id: deploy
+        uses: actions/deploy-pages@v4

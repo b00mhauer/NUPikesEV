@@ -1,0 +1,10 @@
+# The plaintext payload NEVER gets committed — this repository is public.
+data/params.json
+data/ev_history.json
+_site/
+*.local.html
+
+__pycache__/
+*.pyc
+.venv/
+.DS_Store
