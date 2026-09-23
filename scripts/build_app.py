@@ -683,13 +683,22 @@ function paint(){
     "<li><b>Playoffs:</b> top four by record (points-for breaks ties), two-week semifinals (1v4, 2v3), " +
       "then the final and the third-place game. The <b>Shame Plaque</b> is the worst regular-season " +
       "record — the bracket never touches it.</li>" +
-    "<li><b>Calibration:</b> ESPN's week projections and its rest-of-season rate sit on different " +
-      "scales (the season number discounts games it expects a player to miss), so rates are lifted " +
-      "<code>×" + (m.rate_scale || 1) + "</code> onto the weekly scale; the league level is then " +
-      "nudged <code>×" + (m.calibration_scale || 1) + "</code> — " + esc(m.calibrated_to || "") + ".</li>" +
+    "<li><b>Where the projections come from:</b> two independent forecasts, per week, " +
+      "never a preseason total. ESPN's own published number for the week it publishes " +
+      "one, and <b>Sleeper</b>'s week-by-week projections (run through this league's " +
+      "scoring rules) for every week after — currently <b>" +
+      pct(m.matchup_coverage || 0, 0) + "</b> of rostered players matched, source " +
+      "<code>" + esc(m.projection_source || "blend") + "</code>. A season-long total is " +
+      "cut in August and never marked down, so it is not used: a player ruled out for " +
+      "the year still carries a full-season figure in it. The " + (m.unpriced || 0) + " " +
+      "players neither source prices count as zero rather than inherit a stale guess.</li>" +
+    "<li><b>Calibration:</b> the league level is nudged <code>×" +
+      (m.calibration_scale || 1) + "</code> — " + esc(m.calibrated_to || "") + " — so the " +
+      "model's points-per-week matches what the league is actually scoring.</li>" +
     "<li><b>Soft spots:</b> the form term compares each team's results against <i>today's</i> roster, " +
-      "so a rebuilt team reads slightly off; a weekly OUT only removes a player from the current week " +
-      "(season-long absences come through IR and through ESPN's own projection). Data as of <b>" +
+      "so a rebuilt team reads slightly off; a weekly OUT removes a player from that week, and a " +
+      "longer absence shows up as Sleeper's week-by-week line staying empty until it expects " +
+      "him back. Data as of <b>" +
       (fmtWhen(dataStamp) || "not loaded") +
       "</b>.</li></ul>";
 }
@@ -723,7 +732,7 @@ function pickTeam(id){
 
    Recomputed from params on every render, so it follows the data. */
 function gradeScale(){
-  var sc = (params.model || {}).rate_scale || 1, rep = (params.model || {}).replacement || {};
+  var rep = (params.model || {}).replacement || {};
   var pool = {};
   params.teams.forEach(function(t){
     (t.starters || []).forEach(function(s){
@@ -740,7 +749,11 @@ function gradeScale(){
     if(!rep[pos]) return;
     var v = pool[pos].slice().sort(function(a, b){ return a - b; });
     var i = 0.9 * (v.length - 1), lo = Math.floor(i), hi = Math.min(lo + 1, v.length - 1);
-    out[pos] = {wire: rep[pos] * sc, top: v[lo] + (v[hi] - v[lo]) * (i - lo)};
+    /* No rate_scale here: replacement levels are now measured in weekly points
+       already (they rank the league on the same live per-week numbers the
+       starters carry), so lifting them again would move the floor up 13% and
+       mark every grade a letter too harsh. */
+    out[pos] = {wire: rep[pos], top: v[lo] + (v[hi] - v[lo]) * (i - lo)};
   });
   return out;
 }

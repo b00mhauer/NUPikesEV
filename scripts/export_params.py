@@ -58,7 +58,6 @@ def build(season: int) -> dict:
     rosters = espn_live.rosters(raw, current)
 
     all_players = [p for team in rosters.values() for p in team]
-    replacement = roster_strength.replacement_levels(all_players)
     scale = roster_strength.rate_scale(all_players, current)
 
     # Matchup shape for the weeks ESPN does not project (everything after this
@@ -91,6 +90,25 @@ def build(season: int) -> dict:
                      "error": f"{type(exc).__name__}: {exc}"[:120]}
             print(f"[params] WARNING sleeper unavailable ({shape['error']}) — "
                   "future weeks fall back to the flat rate")
+
+    # Replacement level is measured AFTER the Sleeper lines are attached, and this
+    # ordering is load-bearing: replacement_levels() ranks the league on
+    # player_week(), which reads p["sleeper"]. Rank the pool before the attach and
+    # every player prices at his own best published week, which is not a ranking.
+    replacement = roster_strength.replacement_levels(all_players, scale=scale)
+
+    # The players no live source prices. player_week() gives them 0.0 rather than
+    # an August guess, so name them here instead of letting them vanish: a real
+    # starter on this list is a name-match failure to fix, while the tail is
+    # practice-squad bodies and just-signed depth that nobody projects.
+    unpriced = [p for p in all_players
+                if not p.get("sleeper") and not any(v > 0 for v in p["weekly"].values())]
+    if unpriced:
+        starters = [p["name"] for p in unpriced if p["starting"]]
+        print(f"[params] {len(unpriced)}/{len(all_players)} rostered players have no "
+              f"live projection from either source and price at 0.0"
+              + (f"; {len(starters)} of them are in a lineup: "
+                 + ", ".join(starters[:8]) if starters else " (none in a lineup)"))
 
     # the live week (if any) gets real scores + the share still to kick off
     live = {}
@@ -181,6 +199,8 @@ def build(season: int) -> dict:
             "rate_scale": round(scale, 4),
             "replacement": {k: round(v, 2) for k, v in replacement.items()},
             "players": len(all_players),
+            "unpriced": len(unpriced),
+            "projection_source": config.PROJECTION_SOURCE,
             "matchup_source": "sleeper" if shape.get("matched") else "none (flat rate)",
             "matchup_coverage": shape.get("coverage", 0.0),
             "matchup_error": shape.get("error"),

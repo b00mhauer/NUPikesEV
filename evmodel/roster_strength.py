@@ -50,37 +50,54 @@ def rate_scale(players: list[dict], week: int) -> float:
 def player_week(p: dict, week: int, scale: float = 1.0) -> float:
     """What this player is worth in this week.
 
-    Which forecast answers is config.PROJECTION_SOURCE: "espn" (its own week
-    projection where published, else the rest-of-season rate shaped by the
-    matchup), "sleeper" (Sleeper's weekly line scored under our rules), or
-    "blend" (the weighted average, per player per week). A player Sleeper does
-    not cover falls back to ESPN under every setting, so switching source can
-    never zero somebody out.
+    NOTHING here reads p["rate"]. That number is ESPN's season projection spread
+    over the weeks a player can still play, and ESPN's season projection is a
+    PRESEASON figure that is never marked down: Jaxson Dart, ruled OUT, carries a
+    236.6 season total while ESPN's own week projection for him reads 0.00. Using
+    it for the weeks ESPN does not publish -- which is every week but the current
+    one, i.e. most of the season -- spreads an August guess across a changed team.
+
+    So the order is live numbers only: ESPN's published week where it exists
+    (maintained, already in league scoring), then Sleeper's line for that week,
+    then that player's own Sleeper average for a week Sleeper skipped. Where both
+    sources have a number, config.PROJECTION_SOURCE picks "espn", "sleeper" or
+    "blend". A player neither source can price falls through to 0.0, which makes
+    the optimizer skip him and price the slot at replacement.
     """
-    espn = _espn_week(p, week, scale)
-    source = config.PROJECTION_SOURCE
-    if source == "espn":
-        return espn
-    sl = (p.get("sleeper") or {}).get(week)
-    if sl is None:
-        # No Sleeper line for this player-week (unmatched, or the sentinel week
-        # the optimizer uses for "no byes left"). Fall back to ESPN rather than
-        # scoring him zero -- a missing forecast is not a bad forecast.
-        return espn
-    if source == "sleeper":
-        return float(sl)
-    w = config.BLEND_WEIGHTS
-    tot = w["espn"] + w["sleeper"]
-    return (w["espn"] * espn + w["sleeper"] * float(sl)) / tot if tot else espn
+    del scale       # vestigial: it lifted the season RATE onto the weekly scale,
+                    # and nothing here reads the rate any more. Kept in the
+                    # signature because every caller still threads it through.
+    sl = p.get("sleeper") or {}
+    espn_wk = p["weekly"].get(week)          # ESPN maintains this: current week only
+    sleep_wk = sl.get(week)
 
+    # Both sources have a live number for this week -> PROJECTION_SOURCE decides.
+    if espn_wk is not None and sleep_wk is not None:
+        src = config.PROJECTION_SOURCE
+        if src == "espn":
+            return float(espn_wk)
+        if src == "sleeper":
+            return float(sleep_wk)
+        w = config.BLEND_WEIGHTS
+        tot = w["espn"] + w["sleeper"]
+        return ((w["espn"] * float(espn_wk) + w["sleeper"] * float(sleep_wk)) / tot
+                if tot else float(espn_wk))
 
-def _espn_week(p: dict, week: int, scale: float) -> float:
-    """ESPN's view: its own week projection where it published one, else the
-    rest-of-season rate lifted onto the weekly scale and shaped by the matchup."""
-    if week in p["weekly"]:
-        return float(p["weekly"][week])
-    factor = float(p.get("factors", {}).get(week, 1.0))
-    return float(p["rate"]) * scale * factor
+    if espn_wk is not None:
+        return float(espn_wk)
+    if sleep_wk is not None:
+        return float(sleep_wk)
+    if sl:
+        # Sleeper covers this player but not this week -- a bye, or a week it has
+        # not posted. His own average across the weeks it does carry beats
+        # inventing a number.
+        return sum(sl.values()) / len(sl)
+
+    # Nothing current about him at all. Fall back to the largest weekly figure
+    # ESPN has published, which is maintained; if that is zero or absent we
+    # genuinely do not know, and 0.0 makes the optimizer skip him so the slot is
+    # priced at the streaming line -- the honest treatment of no information.
+    return max((v for v in p["weekly"].values() if v > 0), default=0.0)
 
 
 # K and D/ST are rostered almost exactly one per team, so a rank-12 line at
@@ -96,17 +113,28 @@ def _espn_week(p: dict, week: int, scale: float) -> float:
 # projection for starters, i.e. a hole was cheaper than reality by ~1.5/week.
 STREAMED_AT_MEDIAN = ("K", "DST")
 
+# The optimizer's "no byes left" week: past the NFL schedule, so it never
+# matches a published week and always falls through to the season-long view.
+PLAYOFF_SENTINEL = 99
 
-def replacement_levels(all_players: list[dict]) -> dict[str, float]:
+
+def replacement_levels(all_players: list[dict], week: int = PLAYOFF_SENTINEL,
+                      scale: float = 1.0) -> dict[str, float]:
     """The weekly line a manager can stream into a hole, per position.
 
     For the positions the board ranks in (config.REPLACEMENT_RANK) this is the
     last startable player league-wide. For K/D/ST — rostered ~1 per team, and
     close to interchangeable — it is the median of the rostered pool; see
-    STREAMED_AT_MEDIAN above for the evidence."""
+    STREAMED_AT_MEDIAN above for the evidence.
+
+    Ranked by player_week(), the same live valuation the lineup uses, so the line
+    and the players it is compared against are on one scale. It used to rank on
+    p["rate"], which put the wire in ESPN's never-revised preseason space while
+    the lineup moved to live weekly numbers."""
     out = {}
     for pos in list(config.REPLACEMENT_RANK) + list(STREAMED_AT_MEDIAN):
-        pool = sorted((p["rate"] for p in all_players if p["pos"] == pos), reverse=True)
+        pool = sorted((player_week(p, week, scale)
+                       for p in all_players if p["pos"] == pos), reverse=True)
         if not pool:
             out[pos] = 0.0
             continue
@@ -139,7 +167,7 @@ def lineup(players: list[dict], week: int, current_week: int,
                 total += pool[slot][0]
                 picked.append((pos, pool[slot][1]))
             else:
-                total += replacement.get(pos, 0.0) * scale
+                total += replacement.get(pos, 0.0)
                 picked.append((pos, f"(streamed {pos})"))
         used[pos] = min(count, len(pool))
 
@@ -149,13 +177,14 @@ def lineup(players: list[dict], week: int, current_week: int,
         total += rest[0][0]
         picked.append(("FLEX", rest[0][1]))
     else:
-        total += max(replacement["RB"], replacement["WR"]) * scale
+        total += max(replacement["RB"], replacement["WR"])
         picked.append(("FLEX", "(streamed)"))
     return total, picked
 
 
 def replacement_by_week(all_players: list[dict], weeks: list[int],
-                        current_week: int) -> dict[int, dict[str, float]]:
+                        current_week: int,
+                        scale: float = 1.0) -> dict[int, dict[str, float]]:
     """The streaming line, recomputed for each week's PLAYABLE pool.
 
     A bye is usually the reason a slot is empty in the first place, and the same
@@ -164,7 +193,8 @@ def replacement_by_week(all_players: list[dict], weeks: list[int],
     static K line sat 0.3-0.9 above that week's playable median in 8 of 12
     remaining weeks."""
     return {w: replacement_levels([p for p in all_players
-                                   if espn_live.playable(p, w, current_week)])
+                                   if espn_live.playable(p, w, current_week)],
+                                  week=w, scale=scale)
             for w in weeks}
 
 

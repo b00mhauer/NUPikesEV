@@ -4,7 +4,7 @@ exactly the behaviour we had before it existed."""
 
 import pytest
 
-from evmodel import roster_strength, sleeper
+from evmodel import config, roster_strength, sleeper
 
 
 def row(first, last, pos, pts, team=None):
@@ -72,14 +72,6 @@ def test_a_bye_does_not_drag_the_average_down():
     assert 5 not in f[1]
 
 
-def test_an_unmatched_player_falls_back_to_the_flat_rate():
-    by_week = {4: ({}, {}), 5: ({}, {})}
-    f, rep = sleeper.week_factors([player(1, "Nobody Known", "WR", 9.0)], 2026,
-                                  [4, 5], ABBREV, by_week=by_week)
-    assert f == {} and rep["coverage"] == 0.0
-    p = player(1, "Nobody Known", "WR", 9.0)
-    assert roster_strength.player_week(p, 5, scale=1.1) == pytest.approx(9.9)
-
 
 def test_one_week_of_data_is_not_a_shape():
     by_week = {4: ({("a back", "RB"): 12.0}, {}), 5: ({}, {})}
@@ -96,14 +88,6 @@ def test_wild_factors_are_clamped_not_propagated():
     assert all(lo <= v <= hi for v in f[1].values())
 
 
-def test_espn_still_wins_the_week_it_actually_projects():
-    """ESPN publishes the current week and nothing else; where it speaks, it is
-    the authority, because it is already in this league's scoring."""
-    p = player(1, "A Back", "RB", 10.0, factors={3: 1.4, 4: 1.4})
-    p["weekly"] = {3: 15.0}
-    assert roster_strength.player_week(p, 3, scale=1.13) == 15.0        # ESPN's
-    assert roster_strength.player_week(p, 4, scale=1.13) == pytest.approx(15.82)
-
 
 def test_the_shape_moves_a_lineup_but_not_by_much():
     rep = {"QB": 10.0, "RB": 6.0, "WR": 5.0, "TE": 4.0, "K": 6.0, "DST": 5.0}
@@ -114,3 +98,71 @@ def test_the_shape_moves_a_lineup_but_not_by_much():
         p["factors"] = {5: 1.1}
     shaped = roster_strength.lineup(roster, 5, 3, rep)[0]
     assert shaped == pytest.approx(flat * 1.1)
+
+
+# --- the source switch -------------------------------------------------------
+
+def test_sleeper_lines_are_scored_under_our_rules_not_theirs():
+    """The whole point of taking Sleeper's raw stat line: our -1 per sack and our
+    lack of PPR make their own total wrong for us by several points a week."""
+    line = {"pass_yd": 250.0, "pass_td": 2.0, "pass_int": 1.0, "pass_sack": 3.0,
+            "rush_yd": 30.0, "rush_td": 0.5, "rec": 8.0, "pts_ppr": 99.0}
+    got = sleeper.score_line(line)
+    want = 250*0.04 + 2*5.0 + 1*(-2.0) + 3*(-1.0) + 30*0.1 + 0.5*6.0
+    assert got == pytest.approx(want)
+    assert got != 99.0                      # their number is never used as a level
+
+
+def test_the_preseason_rate_never_reaches_a_lineup():
+    """ESPN's season projection is a preseason figure it does not revise: Jaxson
+    Dart, ruled OUT, carries a 236.6 season total while ESPN's own week number
+    for him is 0.00. Spreading that across the weeks ESPN does not publish --
+    every week but the current one -- is what this guards against."""
+    stale = {"weekly": {}, "rate": 99.0, "factors": {}, "sleeper": {}}
+    assert roster_strength.player_week(stale, 8, 1.13) == 0.0
+    live = dict(stale, sleeper={8: 12.0})
+    assert roster_strength.player_week(live, 8, 1.13) == pytest.approx(12.0)
+
+
+def test_espn_wins_the_week_it_actually_publishes():
+    """Its weekly figure IS maintained -- it is the season total that is not."""
+    p = {"weekly": {3: 17.5}, "rate": 99.0, "factors": {}, "sleeper": {3: 11.0}}
+    try:
+        config.PROJECTION_SOURCE = "espn"
+        assert roster_strength.player_week(p, 3, 1.13) == pytest.approx(17.5)
+        config.PROJECTION_SOURCE = "sleeper"
+        assert roster_strength.player_week(p, 3, 1.13) == pytest.approx(11.0)
+        config.PROJECTION_SOURCE = "blend"
+        assert roster_strength.player_week(p, 3, 1.13) == pytest.approx(14.25)
+    finally:
+        config.PROJECTION_SOURCE = "blend"
+
+
+def test_a_week_sleeper_skipped_uses_that_players_own_average():
+    """A bye or an unposted week, not an unknown player -- his other weeks are
+    better evidence than anything we could invent."""
+    p = {"weekly": {}, "rate": 99.0, "factors": {}, "sleeper": {4: 10.0, 5: 14.0}}
+    assert roster_strength.player_week(p, 9, 1.13) == pytest.approx(12.0)
+
+
+def test_a_player_neither_source_prices_falls_to_zero_not_to_august():
+    """Zero makes the optimizer skip him and price the slot at the streaming
+    line, which is the honest treatment of no information."""
+    p = {"weekly": {}, "rate": 88.0, "factors": {}, "sleeper": {}}
+    for src in ("espn", "sleeper", "blend"):
+        config.PROJECTION_SOURCE = src
+        assert roster_strength.player_week(p, 12, 1.13) == 0.0
+    config.PROJECTION_SOURCE = "blend"
+
+
+def test_kickers_are_not_silently_zeroed():
+    """STAT_POINTS holds the offensive stat ids only -- no FG, no XP -- so running
+    a kicker's line through score_line() returns 0.0 for every kicker alive. Under
+    the live-only model that is not a rounding error: it would zero the K slot in
+    every week ESPN does not publish, i.e. the whole rest of the season."""
+    rows = [{"player": {"first_name": "Foot", "last_name": "Baller",
+                        "position": "K", "team": "BUF"},
+             "stats": {"pts_std": 9.2, "pts_ppr": 9.2, "fgm": 2.0, "xpm": 3.0}}]
+    skill, dst = sleeper.index_points(rows)
+    assert skill[(sleeper.norm("Foot Baller"), "K")] == pytest.approx(9.2)
+    assert sleeper.score_line(rows[0]["stats"]) == 0.0    # the trap this guards

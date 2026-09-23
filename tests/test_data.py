@@ -43,22 +43,34 @@ PROTEAMS = {"settings": {"proTeams": [
 ]}}
 
 
-def test_rest_of_season_rate_is_cut_over_the_weeks_he_still_plays():
+def test_rest_of_season_rate_spreads_the_projection_over_the_weeks_he_plays():
     byes = espn_live.bye_weeks(PROTEAMS)
     p = espn_live.player_line(
         entry(1, "Back One", 2, 1, 2, proj_season=235.0, actual=31.4, week_proj=15.1),
         2026, current_week=3, byes=byes)
-    # weeks 3..18 is 16 weeks, less the week-7 bye = 15 he actually plays
-    assert p["rate"] == pytest.approx((235.0 - 31.4) / 15)
+    # 18 weeks less the week-7 bye = 17 he can play; the season forecast covers all
+    # of them, so his weekly rate is that forecast spread across them.
+    assert p["rate"] == pytest.approx(235.0 / 17)
     assert p["weekly"] == {3: 15.1}
     assert p["bye"] == 7 and p["pos"] == "RB" and p["starting"] is True
 
 
-def test_a_player_who_has_banked_his_projection_does_not_go_negative():
+def test_producing_does_not_cut_a_players_rest_of_season_rate():
+    """The bug this guards: subtracting banked points from a whole-season forecast
+    charges a player for scoring. It rated Kyler Murray (-0.5 on the year) above
+    Josh Allen (77.2) because the projection is not marked down when someone misses
+    time, so his unearned points piled onto the weeks that were left."""
     byes = espn_live.bye_weeks(PROTEAMS)
-    p = espn_live.player_line(
-        entry(2, "Overshot", 3, 2, 4, proj_season=90.0, actual=140.0), 2026, 3, byes)
-    assert p["rate"] == 0.0
+    idle = espn_live.player_line(
+        entry(2, "Idle", 1, 2, 0, proj_season=270.0, actual=0.0), 2026, 3, byes)
+    hot = espn_live.player_line(
+        entry(3, "Hot", 1, 2, 0, proj_season=270.0, actual=90.0), 2026, 3, byes)
+    assert idle["rate"] == pytest.approx(hot["rate"])
+    # and the better forecast still wins, whatever either has banked
+    better = espn_live.player_line(
+        entry(4, "Better", 1, 2, 0, proj_season=340.0, actual=120.0), 2026, 3, byes)
+    assert better["rate"] > idle["rate"]
+    assert all(x["rate"] >= 0 for x in (idle, hot, better))
 
 
 def test_who_can_play_and_when():
@@ -107,9 +119,19 @@ def test_week_states_come_off_espn_s_own_verdict():
 # --------------------------------------------------------------------------
 # the lineup optimizer
 # --------------------------------------------------------------------------
-def player(name, pos, rate, bye=0, status="ACTIVE", on_ir=False, weekly=None):
+def player(name, pos, rate, bye=0, status="ACTIVE", on_ir=False, weekly=None,
+           sleeper_pts=None):
+    """`rate` is what he is worth in a week.
+
+    player_week() no longer reads p["rate"] -- that is ESPN's never-revised
+    preseason total -- so a fixture has to carry a LIVE per-week number or the
+    optimizer correctly values him at zero. Unless a test says otherwise, give
+    him a Sleeper line of `rate` in every week he plays, which is what these
+    tests always meant by rate."""
+    sl = sleeper_pts if sleeper_pts is not None else \
+        {w: rate for w in range(1, 19) if w != bye}
     return {"name": name, "pos": pos, "rate": rate, "bye": bye, "status": status,
-            "on_ir": on_ir, "weekly": weekly or {}, "starting": True,
+            "on_ir": on_ir, "weekly": weekly or {}, "sleeper": sl, "starting": True,
             "pro_team": 1, "slot": 2, "player_id": abs(hash(name)) % 10000,
             "proj_season": rate * 16, "act_season": 0.0}
 
@@ -166,14 +188,32 @@ def test_ruling_a_star_out_drops_the_team_this_week_only():
     assert this_week < next_week
 
 
-def test_rate_scale_lifts_season_rates_onto_the_weekly_scale():
+def test_rate_scale_measures_the_espn_gap_but_no_longer_moves_a_lineup():
+    """rate_scale is now a DIAGNOSTIC, not an input.
+
+    It still reports how far ESPN's published week projection sits above the
+    season total spread over the weeks left -- ~1.13, because the week number is
+    conditional on playing while the season number discounts expected absences.
+    But player_week() never reads p["rate"], so the scale it returns cannot
+    change what a lineup is worth. That is the whole point: the season total is
+    a preseason figure, and no multiple of a stale number makes it fresh."""
     roster = [player("A", "RB", 10, weekly={3: 11.3}), player("B", "WR", 8, weekly={3: 9.04}),
               player("C", "QB", 2, weekly={3: 40.0})]   # rate <= 3: ignored as noise
     assert roster_strength.rate_scale(roster, 3) == pytest.approx(1.13, abs=0.001)
     assert roster_strength.rate_scale(roster, 9) == 1.0      # no weekly projections
+
     p = roster[0]
-    assert roster_strength.player_week(p, 3, 1.13) == 11.3   # ESPN's own number wins
-    assert roster_strength.player_week(p, 9, 1.13) == pytest.approx(11.3)
+    # Week 3 has both a published ESPN line (11.3) and a Sleeper line (10.0), so
+    # the configured source decides -- the default blend splits them.
+    assert roster_strength.player_week(p, 3, 1.13) == pytest.approx(10.65)
+    # Week 9: ESPN publishes nothing, so Sleeper's live line stands on its own --
+    # at 10.0, NOT the rate lifted to 11.3 the way the old model would have had it.
+    assert roster_strength.player_week(p, 9, 1.13) == pytest.approx(10.0)
+    # And the scale is inert: passing it, or not, gives the same answer.
+    assert roster_strength.player_week(p, 9, 1.0) == \
+        roster_strength.player_week(p, 9, 1.13)
+    assert roster_strength.player_week(p, 3, 1.0) == \
+        roster_strength.player_week(p, 3, 1.13)
 
 
 def test_calibration_is_shrunk_toward_one_early():

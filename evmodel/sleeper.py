@@ -122,7 +122,13 @@ def index_points(rows: list[dict]) -> tuple[dict, dict]:
                 dst[TEAM_ALIAS.get(team, team)] = float(st.get("pts_std") or 0.0)
         else:
             key = (norm(f"{p.get('first_name','')} {p.get('last_name','')}"), pos)
-            skill[key] = score_line(st)
+            # Kickers the same way, and for the same reason: STAT_POINTS covers the
+            # offensive stat ids only, so scoring a kicker's line under it returns
+            # 0.0 for every kicker -- which would silently zero the slot for every
+            # week ESPN does not publish. Their standard total is the honest stand-in
+            # until the league's own FG-by-distance rules are in STAT_POINTS.
+            skill[key] = float(st.get("pts_std") or 0.0) if pos == "K" \
+                else score_line(st)
     return skill, dst
 
 
