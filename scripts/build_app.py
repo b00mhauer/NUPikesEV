@@ -287,6 +287,18 @@ BODY = """
 </div>
 """
 
+# The JS below is a RAW string, so a \uXXXX written in it survives Python intact
+# and the BROWSER decodes it as a JavaScript escape.
+#
+# EDITING HAZARD: this block uses both conventions for the same character. The
+# middot appears 6 times literally and 5 times as \u00b7; likewise the em dash.
+# So a patch anchored on a line containing one will silently fail to match a line
+# written the other way -- and some tooling decodes \u00b7 in the anchor before
+# comparing, which fails against the escaped copy. The symptom is a substitution
+# reporting no match on a line you can plainly see. Cost two rounds on 2026-09-23.
+# Check the target line first (repr, or cat -A), or anchor on a plain-ASCII
+# neighbour. Do not "normalise" one convention to the other in a drive-by edit:
+# both render correctly, and rewriting them churns the diff for nothing.
 SCRIPT = r"""
 var P0 = __PARAMS__, H0 = __HISTORY__, SIMS = __SIMS__, SEED = 20260101;
 var SEASON = P0.season;
