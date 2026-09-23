@@ -161,6 +161,9 @@ section{margin-bottom:12px;}
      letter-spacing:.04em;margin:2px 0 5px;}
 .d24 b{font-variant-numeric:tabular-nums;color:var(--text-primary);letter-spacing:0;}
 .d24 b.pos{color:var(--up);} .d24 b.neg{color:var(--down);}
+.gr{font-weight:700;font-variant-numeric:tabular-nums;}
+.ga{color:var(--up);} .gb{color:var(--series-1);} .gc{color:var(--text-secondary);}
+.gd{color:var(--amber);} .gf{color:var(--down);}
 .rng{display:flex;gap:4px;margin:0 0 4px;}
 .rb{background:var(--surface-2);border:var(--border);border-radius:var(--radius);
     color:var(--text-muted);font:inherit;font-size:var(--fs-tiny);letter-spacing:.04em;
@@ -706,6 +709,61 @@ function pickTeam(id){
   paint();
 }
 
+/* Letter grades for a lineup, so strength reads at a glance instead of as nine
+   decimals. Graded WITHIN the position -- a WR is never measured against an RB.
+
+   Absolute, not a curve. The scale is anchored at both ends by real quantities:
+   the floor is the streaming line (what that position yields off the wire, which
+   already assumes the flex splits ~50/50 RB/WR), and the ceiling is the 90th
+   percentile of everyone starting that position. So F means literally "you could
+   sign this guy today" and A means "near the top of the position" -- and if a
+   roster is genuinely stacked it shows nine A's rather than being forced into a
+   spread. The 90th percentile rather than the single best keeps one outlier (a
+   Gibbs at RB) from dragging every other grade down a letter.
+
+   Recomputed from params on every render, so it follows the data. */
+function gradeScale(){
+  var sc = (params.model || {}).rate_scale || 1, rep = (params.model || {}).replacement || {};
+  var pool = {};
+  params.teams.forEach(function(t){
+    (t.starters || []).forEach(function(s){
+      var pos = s.pos || s.slot;
+      (pool[pos] = pool[pos] || []).push(s.proj);
+    });
+  });
+  var out = {};
+  Object.keys(pool).forEach(function(pos){
+    /* No wire for this key means it is not a real position -- an older params
+       file without `pos`, so the slot name ("FLEX") landed here. Skip it: a
+       missing floor would make the ratio come out near 1 and grade everyone A,
+       which is worse than showing no grade at all. */
+    if(!rep[pos]) return;
+    var v = pool[pos].slice().sort(function(a, b){ return a - b; });
+    var i = 0.9 * (v.length - 1), lo = Math.floor(i), hi = Math.min(lo + 1, v.length - 1);
+    out[pos] = {wire: rep[pos] * sc, top: v[lo] + (v[hi] - v[lo]) * (i - lo)};
+  });
+  return out;
+}
+
+/* Surname for a tight column. Naive last-word fails twice here: "James Cook III"
+   becomes "III", and "Bengals D/ST" becomes "D/ST" for a slot already labelled
+   DST. Drop generational suffixes, and for a defence keep the city. */
+var NAME_SUFFIX = {"JR": 1, "JR.": 1, "SR": 1, "SR.": 1, "II": 1, "III": 1, "IV": 1, "V": 1};
+function shortName(name){
+  var parts = String(name || "").trim().split(/\s+/);
+  if(parts.length > 1 && parts[parts.length - 1] === "D/ST") return parts.slice(0, -1).join(" ");
+  while(parts.length > 1 && NAME_SUFFIX[parts[parts.length - 1].toUpperCase()]) parts.pop();
+  return parts[parts.length - 1] || name;
+}
+
+function gradeOf(scale, pos, proj){
+  var s = scale[pos];
+  if(!s || s.top <= s.wire) return "";          /* ungradeable -> caller shows the number */
+  if(proj <= s.wire) return "F";
+  var x = (proj - s.wire) / (s.top - s.wire);
+  return x >= 0.75 ? "A" : x >= 0.50 ? "B" : x >= 0.30 ? "C" : "D";
+}
+
 function restoreRows(){
   Array.prototype.forEach.call(document.querySelectorAll("tr.detail"), function(d){
     d.hidden = !openRows[d.getAttribute("data-for")];
@@ -941,9 +999,16 @@ function detail(t){
         '<span>' + esc(i.on_ir ? "IR" : i.status.toLowerCase()) + " · " + i.cost.toFixed(1) + "/wk</span></div>";
     }).join("") + "</div>" : "";
 
+  var gs = gradeScale();
   var lineup = (q.starters || []).length ?
     '<div class="lineup">' + q.starters.map(function(s){
-      return "<div><b>" + esc(s.slot) + "</b> " + esc(s.name.split(" ").slice(-1)[0]) + " " + s.proj.toFixed(1) + "</div>";
+      var pos = s.pos || s.slot, g = gradeOf(gs, pos, s.proj), sc = gs[pos];
+      var tip = s.proj.toFixed(1) + "/wk" + (sc ? ", wire " + sc.wire.toFixed(1) +
+                ", top " + sc.top.toFixed(1) : "");
+      var mark = g ? '<span class="gr g' + g.toLowerCase() + '">' + g + "</span>"
+                   : '<span class="gr">' + s.proj.toFixed(1) + "</span>";
+      return '<div title="' + esc(s.name) + " " + tip + '"><b>' + esc(s.slot) + "</b> " +
+        esc(shortName(s.name)) + " " + mark + "</div>";
     }).join("") + "</div>" : "";
 
   return '<div class="pt-mono-label">EV, over time</div>' +

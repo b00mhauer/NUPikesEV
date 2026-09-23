@@ -134,7 +134,11 @@ def build(season: int) -> dict:
                 for p in players if p["starting"]
             ],
             "starters": [
+                # `pos` is the position the player actually PLAYS, which is what the
+                # grade compares him against -- a flex RB is graded against RBs, not
+                # against other teams' flex slots.
                 {"name": name, "slot": slot,
+                 "pos": next((p["pos"] for p in players if p["name"] == name), slot),
                  "proj": round(next((roster_strength.player_week(p, PLAYOFF_WEEK, scale)
                                      for p in players if p["name"] == name), 0.0), 1)}
                 for slot, name in roster_strength.lineup(
