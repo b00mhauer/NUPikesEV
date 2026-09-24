@@ -23,6 +23,7 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
 PARAMS = REPO / "data" / "params.json"
+COMMISH = REPO / "data" / "commish_ranks.json"
 TAPE = REPO / "data" / "ev_history.json"
 THEME = REPO / "web" / "theme.css"
 OUT = REPO / "_site" / "index.html"
@@ -149,6 +150,15 @@ section{margin-bottom:12px;}
 
 /* --- money table --- */
 .pt-table td,.pt-table th{padding:5px 6px;}
+.ladder{table-layout:fixed;width:100%;border-collapse:collapse;}
+.ladder th{font-size:var(--fs-tiny);color:var(--text-muted);font-weight:400;padding:3px 0;}
+.ladder td{text-align:center;padding:3px 0;font-size:15px;line-height:1.5;}
+.ladder td.pl{width:2.1em;text-align:right;padding-right:5px;
+  font-size:var(--fs-tiny);color:var(--text-muted);font-variant-numeric:tabular-nums;}
+.ladder th.pl{text-align:right;padding-right:5px;}
+.ladder tr:nth-child(even) td{background:color-mix(in srgb,var(--text-primary) 4%,transparent);}
+.ladder td.us{background:color-mix(in srgb,var(--amber) 20%,transparent);border-radius:4px;}
+.ladder .mv{font-size:var(--fs-tiny);}
 .gradegrid{table-layout:fixed;width:100%;}
 .gradegrid th,.gradegrid td{padding:5px 2px;text-align:center;font-size:var(--fs-tiny);}
 .gradegrid th.rk,.gradegrid td.rk{width:1.6em;color:var(--text-muted);}
@@ -297,6 +307,12 @@ BODY = """
    counts at the position he plays.</div>
  </section>
 
+ <section class="pt-panel" id="ladderpanel" hidden>
+  <header>Commissioner&rsquo;s ladder<span class="sub">his weekly emoji, 1st to 12th</span></header>
+  <div id="ladder"></div>
+  <div class="note" id="ladderkey"></div>
+ </section>
+
  <div class="ticker" id="ticker" hidden>
   <span class="tag">Pike EV</span>
   <span class="win"><span class="track" id="tickertrack"></span></span>
@@ -330,6 +346,7 @@ BODY = """
 # both render correctly, and rewriting them churns the diff for nothing.
 SCRIPT = r"""
 var P0 = __PARAMS__, H0 = __HISTORY__, SIMS = __SIMS__, SEED = 20260101;
+var COMMISH = __COMMISH__;
 var SEASON = P0.season;
 var params = JSON.parse(JSON.stringify(P0));
 var hist = JSON.parse(JSON.stringify(H0));
@@ -646,6 +663,7 @@ function paint(){
   var shame = result.teams.slice().sort(function(a,b){ return b.p_shame - a.p_shame; }).slice(0, 6);
   var top = shame[0].p_shame || 1;
   el("gradegrid").innerHTML = gradeGrid(params.teams);
+  renderLadder();
   el("shame").innerHTML = shame.map(function(t){
     return '<div class="bar"><span class="lab">' + esc(t.abbrev) + '</span>' +
       '<span class="track"><span class="fill" style="width:' + (100*t.p_shame/top).toFixed(1) + '%"></span></span>' +
@@ -907,6 +925,68 @@ function gradeClass(g){
   var c = String(g || "").charAt(0);
   return c === "A" ? "gA" : c === "B" ? "gB" : c === "C" ? "gC"
        : c === "D" ? "gD" : c === "F" ? "gF" : "";
+}
+
+/* ---- the commissioner's ladder ---------------------------------------------
+   He posts his rankings as rows of emoji, 1st through 12th, and the interesting
+   thing is not any single week but the movement: a column per posting, a row
+   per place, so you read an emoji ACROSS to watch a team climb or fall.
+
+   Nothing derives this -- it is typed into data/commish_ranks.json from what he
+   posts, one entry per week, newest last. The panel hides itself when there is
+   nothing to show. */
+function ladderTable(c){
+  var cols = (c && c.columns) || [], owners = (c && c.owners) || {};
+  if(!cols.length) return "";
+  var places = 0;
+  cols.forEach(function(col){ places = Math.max(places, (col.order || []).length); });
+
+  /* where each emoji sat in the previous column, so a cell can show its move */
+  var prev = cols.map(function(col, i){
+    var at = {};
+    if(i > 0) (cols[i - 1].order || []).forEach(function(e, j){ at[e] = j; });
+    return at;
+  });
+
+  var head = '<tr><th class="pl"></th>' + cols.map(function(col){
+    return '<th>' + esc(col.label || "") + '</th>';
+  }).join("") + '</tr>';
+
+  var rows = "";
+  for(var r = 0; r < places; r++){
+    var cells = cols.map(function(col, i){
+      var e = (col.order || [])[r];
+      if(!e) return "<td></td>";
+      var who = owners[e] || "";
+      var was = prev[i][e], mv = "";
+      if(was !== undefined && was !== r){
+        var d = was - r;                        /* positive = climbed */
+        mv = '<span class="mv ' + (d > 0 ? "pt-up" : "pt-down") + '">' +
+             (d > 0 ? "↑" : "↓") + Math.abs(d) + '</span>';
+      }
+      var mine = /parrott/i.test(who);
+      return '<td' + (mine ? ' class="us"' : '') + ' title="' + esc(who) + '">' +
+             e + mv + '</td>';
+    }).join("");
+    rows += '<tr><td class="pl">' + (r + 1) + '</td>' + cells + '</tr>';
+  }
+  /* With one or two postings a full-width fixed table strands each emoji in the
+     middle of a huge column. Size it to the columns it actually has until there
+     are enough weeks to fill the panel, then let it stretch. */
+  var w = cols.length >= 8 ? "100%" : (2.4 + cols.length * 3.2).toFixed(1) + "em";
+  return '<table class="ladder" style="width:' + w + '"><thead>' + head +
+         '</thead><tbody>' + rows + '</tbody></table>';
+}
+
+function renderLadder(){
+  var html = ladderTable(COMMISH);
+  if(!html) return;                              /* no postings yet -> stay hidden */
+  el("ladder").innerHTML = html;
+  var n = (COMMISH.columns || []).length;
+  el("ladderkey").innerHTML = "Read an emoji across to follow a team. " +
+    (n > 1 ? "Arrows show places gained or lost since the previous posting. " : "") +
+    "Hover an emoji for the owner.";
+  el("ladderpanel").hidden = false;
 }
 
 function restoreRows(){
@@ -1210,13 +1290,20 @@ def build() -> str:
     and the fetchers for the encrypted files beside it."""
     params = json.loads(PARAMS.read_text())
     history = load_tape(params["season"])
+    # Hand-kept, so treat a missing or malformed file as "no ladder yet" rather
+    # than failing the build -- the page just drops the panel.
+    try:
+        commish = json.loads(COMMISH.read_text())
+    except (OSError, ValueError):
+        commish = {"owners": {}, "columns": []}
     engine = (REPO / "scripts" / "ev_sim.js").read_text()
     share = int(params["share_usd"])
     body = (BODY.replace("$SHARE", f"${share}")
                 .replace("$P1", f"{share*7:,}")
                 .replace("$P2", f"{share*2:,}")
                 .replace("$ENTRY", f"{share:,}"))
-    script = (SCRIPT.replace("__PARAMS__", json.dumps(params, separators=(",", ":")))
+    script = (SCRIPT.replace("__COMMISH__", json.dumps(commish, separators=(",", ":")))
+                    .replace("__PARAMS__", json.dumps(params, separators=(",", ":")))
                     .replace("__HISTORY__", json.dumps(history, separators=(",", ":")))
                     .replace("__SIMS__", str(SIMS)))
     week = params["current_week"]
