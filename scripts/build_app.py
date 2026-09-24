@@ -291,8 +291,10 @@ BODY = """
   <div class="note gradekey">The same nine players, and the same grades, as each
    team&rsquo;s full-strength lineup above: graded against that position&rsquo;s streaming
    line (F) and the 90th percentile of starters (A), absolute rather than a curve.
-   Cells average those grades on a fifteen-step scale, and <b>Avg</b> is a straight
-   average of all nine. A flex player counts at the position he plays.</div>
+   Cells average those grades on a fifteen-step scale. <b>Avg</b> weights QB, RB and
+   WR at 2 units against 1 for TE, K and DST, so the two positions with almost no
+   spread between them cannot set a fifth of a team&rsquo;s grade. A flex player
+   counts at the position he plays.</div>
  </section>
 
  <div class="ticker" id="ticker" hidden>
@@ -813,14 +815,28 @@ function gradeOf(scale, pos, proj){
    mean of the position cells. Those differ whenever a team is unevenly spread,
    and the straight one is what was asked for: six RBs count six times. */
 var GRADE_PTS = {A: 4, B: 3, C: 2, D: 1, F: 0};
+
+/* What each starter is worth in the Avg column. A straight nine-way average
+   let kicker and defence set two ninths of a team's grade, and those are the
+   two positions whose grades turn on about a point a week -- half the league
+   lands under the wire at both, which dragged every average down without
+   saying anything true about the team. At 1 unit against 2 for the skill
+   positions they are 2/15 of the grade instead of 2/9. The per-position cells
+   are unaffected: everyone in a cell plays the same position, so the weight
+   cancels. */
+var GRADE_W = {QB: 2, RB: 2, WR: 2, TE: 1, K: 1, DST: 1};
 var GRADE_15 = ["F-", "F", "F+", "D-", "D", "D+", "C-", "C", "C+",
                 "B-", "B", "B+", "A-", "A", "A+"];
 
-function avgGrade(pts){
+function avgGrade(pts, wts){
   if(!pts.length) return "";
-  var m = 0, i;
-  for(i = 0; i < pts.length; i++) m += pts[i];
-  m /= pts.length;
+  var m = 0, tot = 0, i;
+  for(i = 0; i < pts.length; i++){
+    var w = wts ? wts[i] : 1;
+    m += pts[i] * w; tot += w;
+  }
+  if(!tot) return "";
+  m /= tot;
   /* Each plain letter sits at the CENTRE of its band, not at its edge: F=1,
      D=4, C=7, B=10, A=13. Spreading 0-4 uniformly across the fifteen instead
      puts the boundaries half a letter off, and it shows -- two D players came
@@ -837,7 +853,7 @@ var GRID_POS = ["QB", "RB", "WR", "TE", "K", "DST"];
 function gradeGrid(teams){
   var scale = gradeScale();
   var rows = teams.map(function(t){
-    var byPos = {}, all = [];
+    var byPos = {}, all = [], wts = [];
     /* STARTERS, not the whole roster -- these are the same nine players, with
        the same grades, that the full-strength lineup card shows above. Averaging
        the bench in made the grid contradict the card: Glow's RBs read B and C
@@ -851,10 +867,11 @@ function gradeGrid(teams){
       if(v === undefined) return;
       var pos = r.pos || r.slot;
       (byPos[pos] = byPos[pos] || []).push(v);
-      all.push(v);
+      all.push(v); wts.push(GRADE_W[pos] === undefined ? 1 : GRADE_W[pos]);
     });
-    return {t: t, byPos: byPos, all: all,
-            mean: all.length ? all.reduce(function(a, b){ return a + b; }, 0) / all.length : -1};
+    var num = 0, den = 0;
+    for(var i = 0; i < all.length; i++){ num += all[i] * wts[i]; den += wts[i]; }
+    return {t: t, byPos: byPos, all: all, wts: wts, mean: den ? num / den : -1};
   }).filter(function(r){ return r.all.length; });
 
   rows.sort(function(a, b){ return b.mean - a.mean; });
@@ -868,7 +885,7 @@ function gradeGrid(teams){
       var g = avgGrade(r.byPos[pos] || []);
       return '<td class="' + gradeClass(g) + '">' + (g || "&mdash;") + '</td>';
     }).join("");
-    var ov = avgGrade(r.all);
+    var ov = avgGrade(r.all, r.wts);
     return '<tr' + (r.t.is_us ? ' class="us"' : '') + '><td class="rk">' + (i + 1) +
       '</td><td class="tm">' + esc(r.t.abbrev || shortName(r.t.owner)) + '</td>' +
       cells + '<td class="ov ' + gradeClass(ov) + '">' + ov + '</td></tr>';
