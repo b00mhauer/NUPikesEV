@@ -149,6 +149,20 @@ section{margin-bottom:12px;}
 
 /* --- money table --- */
 .pt-table td,.pt-table th{padding:5px 6px;}
+.gradegrid{table-layout:fixed;width:100%;}
+.gradegrid th,.gradegrid td{padding:5px 2px;text-align:center;font-size:var(--fs-tiny);}
+.gradegrid th.rk,.gradegrid td.rk{width:1.6em;color:var(--text-muted);}
+.gradegrid th.tm,.gradegrid td.tm{width:3.4em;text-align:left;color:var(--text-secondary);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.gradegrid td{font-variant-numeric:tabular-nums;}
+.gradegrid td.ov,.gradegrid th.ov{font-weight:600;
+  border-left:1px solid var(--border);color:var(--text-primary);}
+.gradegrid td.gA{color:var(--up);}
+.gradegrid td.gB{color:var(--text-primary);}
+.gradegrid td.gC{color:var(--text-secondary);}
+.gradegrid td.gD{color:var(--warning);}
+.gradegrid td.gF{color:var(--down);}
+.gradekey{margin-top:8px;}
 .pt-table tr.us td{background:color-mix(in srgb,var(--amber) 11%,transparent);}
 .pt-table tr.us td:first-child{box-shadow:inset 3px 0 0 var(--amber);}
 .pt-table tr.row{cursor:pointer;}
@@ -269,6 +283,15 @@ BODY = """
   <header>Week <span id="wknum"></span><span class="sub" id="wksub"></span></header>
   <div class="mu" id="week"></div>
   <div class="book-note" id="booknote"></div>
+ </section>
+
+ <section class="pt-panel">
+  <header>Roster grades<span class="sub">every player, graded in his own position</span></header>
+  <div id="gradegrid"></div>
+  <div class="note gradekey">Each player is graded against his position&rsquo;s streaming
+   line (F) and the 90th percentile of starters (A) &mdash; absolute, not a curve.
+   Cells average those grades on a fifteen-step scale; <b>Avg</b> is a straight
+   average over the whole roster, so depth counts.</div>
  </section>
 
  <div class="ticker" id="ticker" hidden>
@@ -619,6 +642,7 @@ function paint(){
 
   var shame = result.teams.slice().sort(function(a,b){ return b.p_shame - a.p_shame; }).slice(0, 6);
   var top = shame[0].p_shame || 1;
+  el("gradegrid").innerHTML = gradeGrid(params.teams);
   el("shame").innerHTML = shame.map(function(t){
     return '<div class="bar"><span class="lab">' + esc(t.abbrev) + '</span>' +
       '<span class="track"><span class="fill" style="width:' + (100*t.p_shame/top).toFixed(1) + '%"></span></span>' +
@@ -775,6 +799,79 @@ function gradeOf(scale, pos, proj){
   if(proj <= s.wire) return "F";
   var x = (proj - s.wire) / (s.top - s.wire);
   return x >= 0.75 ? "A" : x >= 0.50 ? "B" : x >= 0.30 ? "C" : "D";
+}
+
+/* ---- the roster grade grid -------------------------------------------------
+   gradeOf() gives a player one of five letters. An AVERAGE of those wants finer
+   resolution than A/B/C/D/F, so any averaged cell renders on the fifteen-step
+   scale: the 0-4 points behind the letters, cut into fifteen equal steps of
+   0.267. That is the whole rule -- no curve, no rounding to the nearest whole
+   letter, and F+ and F- are real outcomes rather than decoration.
+
+   The overall column is a STRAIGHT average over every rostered player, not the
+   mean of the position cells. Those differ whenever a team is unevenly spread,
+   and the straight one is what was asked for: six RBs count six times. */
+var GRADE_PTS = {A: 4, B: 3, C: 2, D: 1, F: 0};
+var GRADE_15 = ["F-", "F", "F+", "D-", "D", "D+", "C-", "C", "C+",
+                "B-", "B", "B+", "A-", "A", "A+"];
+
+function avgGrade(pts){
+  if(!pts.length) return "";
+  var m = 0, i;
+  for(i = 0; i < pts.length; i++) m += pts[i];
+  m /= pts.length;
+  /* 0..4 over fifteen equal steps; clamp so a perfect 4.0 lands on A+ */
+  var step = Math.floor(m / (4 / GRADE_15.length));
+  return GRADE_15[Math.max(0, Math.min(GRADE_15.length - 1, step))];
+}
+
+/* Columns are fixed so every row lines up and the table never needs a sideways
+   scroll on a phone. DST is the widest header, hence the abbreviation. */
+var GRID_POS = ["QB", "RB", "WR", "TE", "K", "DST"];
+
+function gradeGrid(teams){
+  var scale = gradeScale();
+  var rows = teams.map(function(t){
+    var byPos = {}, all = [];
+    (t.roster || []).forEach(function(r){
+      var g = gradeOf(scale, r.pos, r.proj);
+      if(!g && g !== "F") return;               /* no wire for that slot -> ungradeable */
+      var v = GRADE_PTS[g];
+      if(v === undefined) return;
+      (byPos[r.pos] = byPos[r.pos] || []).push(v);
+      all.push(v);
+    });
+    return {t: t, byPos: byPos, all: all,
+            mean: all.length ? all.reduce(function(a, b){ return a + b; }, 0) / all.length : -1};
+  }).filter(function(r){ return r.all.length; });
+
+  rows.sort(function(a, b){ return b.mean - a.mean; });
+
+  var head = '<tr><th class="rk"></th><th class="tm">Team</th>' +
+    GRID_POS.map(function(p){ return '<th>' + p + '</th>'; }).join("") +
+    '<th class="ov">Avg</th></tr>';
+
+  var body = rows.map(function(r, i){
+    var cells = GRID_POS.map(function(pos){
+      var g = avgGrade(r.byPos[pos] || []);
+      return '<td class="' + gradeClass(g) + '">' + (g || "&mdash;") + '</td>';
+    }).join("");
+    var ov = avgGrade(r.all);
+    return '<tr' + (r.t.is_us ? ' class="us"' : '') + '><td class="rk">' + (i + 1) +
+      '</td><td class="tm">' + esc(r.t.abbrev || shortName(r.t.owner)) + '</td>' +
+      cells + '<td class="ov ' + gradeClass(ov) + '">' + ov + '</td></tr>';
+  }).join("");
+
+  return '<table class="pt-table gradegrid"><thead>' + head +
+    '</thead><tbody>' + body + '</tbody></table>';
+}
+
+/* One colour band per letter family, so the grid reads at a glance without
+   becoming a heat map that implies more precision than five letters carry. */
+function gradeClass(g){
+  var c = String(g || "").charAt(0);
+  return c === "A" ? "gA" : c === "B" ? "gB" : c === "C" ? "gC"
+       : c === "D" ? "gD" : c === "F" ? "gF" : "";
 }
 
 function restoreRows(){
