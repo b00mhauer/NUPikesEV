@@ -171,7 +171,6 @@ section{margin-bottom:12px;}
 .gradegrid td.gC{color:var(--text-secondary);}
 .gradegrid td.gD{color:var(--warning);}
 .gradegrid td.gF{color:var(--down);}
-.gradekey{margin-top:8px;}
 .pt-table tr.us td{background:color-mix(in srgb,var(--amber) 11%,transparent);}
 .pt-table tr.us td:first-child{box-shadow:inset 3px 0 0 var(--amber);}
 .pt-table tr.row{cursor:pointer;}
@@ -297,13 +296,6 @@ BODY = """
  <section class="pt-panel">
   <header>Lineup grades<span class="sub">the full-strength nine, graded by position</span></header>
   <div id="gradegrid"></div>
-  <div class="note gradekey">The same nine players, and the same grades, as each
-   team&rsquo;s full-strength lineup above: graded against that position&rsquo;s streaming
-   line (F) and the 90th percentile of starters (A), absolute rather than a curve.
-   Cells average those grades on a fifteen-step scale. <b>Avg</b> weights QB, RB and
-   WR at 2 units against 1 for TE, K and DST, so the two positions with almost no
-   spread between them cannot set a fifth of a team&rsquo;s grade. A flex player
-   counts at the position he plays.</div>
  </section>
 
  <section class="pt-panel" id="crowspanel" hidden>
