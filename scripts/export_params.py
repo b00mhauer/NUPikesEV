@@ -199,15 +199,6 @@ def build(season: int) -> dict:
                     players, PLAYOFF_WEEK, current, replacement,
                     ignore_bye=True, scale=scale)[1]
             ],
-            # Every rostered player, bench included, for the position grade grid.
-            # Only what a grade needs -- position and value -- so this stays a few
-            # KB. No names: the grid reports a team's depth at a position, and a
-            # page that named benched players would be scouting, not a scoreboard.
-            "roster": [
-                {"pos": p["pos"],
-                 "proj": round(roster_strength.player_week(p, PLAYOFF_WEEK, scale), 1)}
-                for p in players
-            ],
         })
 
     params = {

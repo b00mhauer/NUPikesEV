@@ -286,12 +286,13 @@ BODY = """
  </section>
 
  <section class="pt-panel">
-  <header>Roster grades<span class="sub">every player, graded in his own position</span></header>
+  <header>Lineup grades<span class="sub">the full-strength nine, graded by position</span></header>
   <div id="gradegrid"></div>
-  <div class="note gradekey">Each player is graded against his position&rsquo;s streaming
-   line (F) and the 90th percentile of starters (A) &mdash; absolute, not a curve.
-   Cells average those grades on a fifteen-step scale; <b>Avg</b> is a straight
-   average over the whole roster, so depth counts.</div>
+  <div class="note gradekey">The same nine players, and the same grades, as each
+   team&rsquo;s full-strength lineup above: graded against that position&rsquo;s streaming
+   line (F) and the 90th percentile of starters (A), absolute rather than a curve.
+   Cells average those grades on a fifteen-step scale, and <b>Avg</b> is a straight
+   average of all nine. A flex player counts at the position he plays.</div>
  </section>
 
  <div class="ticker" id="ticker" hidden>
@@ -820,9 +821,13 @@ function avgGrade(pts){
   var m = 0, i;
   for(i = 0; i < pts.length; i++) m += pts[i];
   m /= pts.length;
-  /* 0..4 over fifteen equal steps; clamp so a perfect 4.0 lands on A+ */
-  var step = Math.floor(m / (4 / GRADE_15.length));
-  return GRADE_15[Math.max(0, Math.min(GRADE_15.length - 1, step))];
+  /* Each plain letter sits at the CENTRE of its band, not at its edge: F=1,
+     D=4, C=7, B=10, A=13. Spreading 0-4 uniformly across the fifteen instead
+     puts the boundaries half a letter off, and it shows -- two D players came
+     out D- and a lineup of straight Bs came out B+. A team of straight As
+     grades A, which is why A+ and F- cannot be reached by averaging: you
+     cannot beat every player being the best grade there is. */
+  return GRADE_15[Math.max(0, Math.min(GRADE_15.length - 1, Math.round(3 * m + 1)))];
 }
 
 /* Columns are fixed so every row lines up and the table never needs a sideways
@@ -833,12 +838,19 @@ function gradeGrid(teams){
   var scale = gradeScale();
   var rows = teams.map(function(t){
     var byPos = {}, all = [];
-    (t.roster || []).forEach(function(r){
-      var g = gradeOf(scale, r.pos, r.proj);
+    /* STARTERS, not the whole roster -- these are the same nine players, with
+       the same grades, that the full-strength lineup card shows above. Averaging
+       the bench in made the grid contradict the card: Glow's RBs read B and C
+       up there and D- down here, because four benched RBs were dragging it. A
+       flex player counts in the position he actually plays, per the same rule
+       the card uses. */
+    (t.starters || []).forEach(function(r){
+      var g = gradeOf(scale, r.pos || r.slot, r.proj);
       if(!g && g !== "F") return;               /* no wire for that slot -> ungradeable */
       var v = GRADE_PTS[g];
       if(v === undefined) return;
-      (byPos[r.pos] = byPos[r.pos] || []).push(v);
+      var pos = r.pos || r.slot;
+      (byPos[pos] = byPos[pos] || []).push(v);
       all.push(v);
     });
     return {t: t, byPos: byPos, all: all,
