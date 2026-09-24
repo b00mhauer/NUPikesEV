@@ -309,7 +309,6 @@ BODY = """
  <section class="pt-panel" id="crowspanel" hidden>
   <header>Commissioner&rsquo;s rows<span class="sub">Jack&rsquo;s own rankings, 1st to 12th</span></header>
   <div id="crows"></div>
-  <div class="note" id="crowskey"></div>
  </section>
 
  <div class="ticker" id="ticker" hidden>
@@ -979,11 +978,6 @@ function renderCommishRows(){
   var html = commishRows(COMMISH);
   if(!html) return;                              /* no postings yet -> stay hidden */
   el("crows").innerHTML = html;
-  var n = (COMMISH.columns || []).length;
-  el("crowskey").innerHTML = "Jack posts these by hand each week &mdash; his call, " +
-    "not this model&rsquo;s. Read an emoji across to follow a team. " +
-    (n > 1 ? "Arrows show places gained or lost since his previous post. " : "") +
-    "Hover an emoji for the owner.";
   el("crowspanel").hidden = false;
 }
 
