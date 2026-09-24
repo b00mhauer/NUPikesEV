@@ -150,15 +150,15 @@ section{margin-bottom:12px;}
 
 /* --- money table --- */
 .pt-table td,.pt-table th{padding:5px 6px;}
-.ladder{table-layout:fixed;width:100%;border-collapse:collapse;}
-.ladder th{font-size:var(--fs-tiny);color:var(--text-muted);font-weight:400;padding:3px 0;}
-.ladder td{text-align:center;padding:3px 0;font-size:15px;line-height:1.5;}
-.ladder td.pl{width:2.1em;text-align:right;padding-right:5px;
+.crows{table-layout:fixed;width:100%;border-collapse:collapse;}
+.crows th{font-size:var(--fs-tiny);color:var(--text-muted);font-weight:400;padding:3px 0;}
+.crows td{text-align:center;padding:3px 0;font-size:15px;line-height:1.5;}
+.crows td.pl{width:2.1em;text-align:right;padding-right:5px;
   font-size:var(--fs-tiny);color:var(--text-muted);font-variant-numeric:tabular-nums;}
-.ladder th.pl{text-align:right;padding-right:5px;}
-.ladder tr:nth-child(even) td{background:color-mix(in srgb,var(--text-primary) 4%,transparent);}
-.ladder td.us{background:color-mix(in srgb,var(--amber) 20%,transparent);border-radius:4px;}
-.ladder .mv{font-size:var(--fs-tiny);}
+.crows th.pl{text-align:right;padding-right:5px;}
+.crows tr:nth-child(even) td{background:color-mix(in srgb,var(--text-primary) 4%,transparent);}
+.crows td.us{background:color-mix(in srgb,var(--amber) 20%,transparent);border-radius:4px;}
+.crows .mv{font-size:var(--fs-tiny);}
 .gradegrid{table-layout:fixed;width:100%;}
 .gradegrid th,.gradegrid td{padding:5px 2px;text-align:center;font-size:var(--fs-tiny);}
 .gradegrid th.rk,.gradegrid td.rk{width:1.6em;color:var(--text-muted);}
@@ -307,10 +307,10 @@ BODY = """
    counts at the position he plays.</div>
  </section>
 
- <section class="pt-panel" id="ladderpanel" hidden>
-  <header>Commissioner&rsquo;s ladder<span class="sub">his weekly emoji, 1st to 12th</span></header>
-  <div id="ladder"></div>
-  <div class="note" id="ladderkey"></div>
+ <section class="pt-panel" id="crowspanel" hidden>
+  <header>Commissioner&rsquo;s rows<span class="sub">Jack&rsquo;s own rankings, 1st to 12th</span></header>
+  <div id="crows"></div>
+  <div class="note" id="crowskey"></div>
  </section>
 
  <div class="ticker" id="ticker" hidden>
@@ -663,7 +663,7 @@ function paint(){
   var shame = result.teams.slice().sort(function(a,b){ return b.p_shame - a.p_shame; }).slice(0, 6);
   var top = shame[0].p_shame || 1;
   el("gradegrid").innerHTML = gradeGrid(params.teams);
-  renderLadder();
+  renderCommishRows();
   el("shame").innerHTML = shame.map(function(t){
     return '<div class="bar"><span class="lab">' + esc(t.abbrev) + '</span>' +
       '<span class="track"><span class="fill" style="width:' + (100*t.p_shame/top).toFixed(1) + '%"></span></span>' +
@@ -927,7 +927,7 @@ function gradeClass(g){
        : c === "D" ? "gD" : c === "F" ? "gF" : "";
 }
 
-/* ---- the commissioner's ladder ---------------------------------------------
+/* ---- the commissioner's rows ---------------------------------------------
    He posts his rankings as rows of emoji, 1st through 12th, and the interesting
    thing is not any single week but the movement: a column per posting, a row
    per place, so you read an emoji ACROSS to watch a team climb or fall.
@@ -935,7 +935,7 @@ function gradeClass(g){
    Nothing derives this -- it is typed into data/commish_ranks.json from what he
    posts, one entry per week, newest last. The panel hides itself when there is
    nothing to show. */
-function ladderTable(c){
+function commishRows(c){
   var cols = (c && c.columns) || [], owners = (c && c.owners) || {};
   if(!cols.length) return "";
   var places = 0;
@@ -974,19 +974,20 @@ function ladderTable(c){
      middle of a huge column. Size it to the columns it actually has until there
      are enough weeks to fill the panel, then let it stretch. */
   var w = cols.length >= 8 ? "100%" : (2.4 + cols.length * 3.2).toFixed(1) + "em";
-  return '<table class="ladder" style="width:' + w + '"><thead>' + head +
+  return '<table class="crows" style="width:' + w + '"><thead>' + head +
          '</thead><tbody>' + rows + '</tbody></table>';
 }
 
-function renderLadder(){
-  var html = ladderTable(COMMISH);
+function renderCommishRows(){
+  var html = commishRows(COMMISH);
   if(!html) return;                              /* no postings yet -> stay hidden */
-  el("ladder").innerHTML = html;
+  el("crows").innerHTML = html;
   var n = (COMMISH.columns || []).length;
-  el("ladderkey").innerHTML = "Read an emoji across to follow a team. " +
-    (n > 1 ? "Arrows show places gained or lost since the previous posting. " : "") +
+  el("crowskey").innerHTML = "Jack posts these by hand each week &mdash; his call, " +
+    "not this model&rsquo;s. Read an emoji across to follow a team. " +
+    (n > 1 ? "Arrows show places gained or lost since his previous post. " : "") +
     "Hover an emoji for the owner.";
-  el("ladderpanel").hidden = false;
+  el("crowspanel").hidden = false;
 }
 
 function restoreRows(){
@@ -1290,7 +1291,7 @@ def build() -> str:
     and the fetchers for the encrypted files beside it."""
     params = json.loads(PARAMS.read_text())
     history = load_tape(params["season"])
-    # Hand-kept, so treat a missing or malformed file as "no ladder yet" rather
+    # Hand-kept, so treat a missing or malformed file as "nothing posted yet" rather
     # than failing the build -- the page just drops the panel.
     try:
         commish = json.loads(COMMISH.read_text())
