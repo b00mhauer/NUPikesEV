@@ -157,7 +157,6 @@ section{margin-bottom:12px;}
   font-size:var(--fs-tiny);color:var(--text-muted);font-variant-numeric:tabular-nums;}
 .crows th.pl{text-align:right;padding-right:5px;}
 .crows tr:nth-child(even) td{background:color-mix(in srgb,var(--text-primary) 4%,transparent);}
-.crows td.us{background:color-mix(in srgb,var(--amber) 20%,transparent);border-radius:4px;}
 .crows .mv{font-size:var(--fs-tiny);}
 .gradegrid{table-layout:fixed;width:100%;}
 .gradegrid th,.gradegrid td{padding:5px 2px;text-align:center;font-size:var(--fs-tiny);}
@@ -964,9 +963,7 @@ function commishRows(c){
         mv = '<span class="mv ' + (d > 0 ? "pt-up" : "pt-down") + '">' +
              (d > 0 ? "↑" : "↓") + Math.abs(d) + '</span>';
       }
-      var mine = /parrott/i.test(who);
-      return '<td' + (mine ? ' class="us"' : '') + ' title="' + esc(who) + '">' +
-             e + mv + '</td>';
+      return '<td title="' + esc(who) + '">' + e + mv + '</td>';
     }).join("");
     rows += '<tr><td class="pl">' + (r + 1) + '</td>' + cells + '</tr>';
   }
