@@ -801,7 +801,13 @@ function gradeOf(scale, pos, proj){
   if(!s || s.top <= s.wire) return "";          /* ungradeable -> caller shows the number */
   if(proj <= s.wire) return "F";
   var x = (proj - s.wire) / (s.top - s.wire);
-  return x >= 0.75 ? "A" : x >= 0.50 ? "B" : x >= 0.30 ? "C" : "D";
+  /* Cutoffs set so the league lands near a fifth in each letter: today that is
+     A 19% B 19% C 22% D 18% F 21%. That is a one-time calibration, NOT a curve --
+     the numbers below are fixed, so as rosters change the shares drift, and a
+     genuinely stacked league would show more As rather than being forced back to
+     a fifth. F needed no cutoff at all: "at or below the streaming line" already
+     catches 21%, and it is the one band that means something on its own. */
+  return x >= 0.80 ? "A" : x >= 0.40 ? "B" : x >= 0.20 ? "C" : "D";
 }
 
 /* ---- the roster grade grid -------------------------------------------------
