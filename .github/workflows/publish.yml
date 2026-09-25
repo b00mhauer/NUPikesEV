@@ -48,6 +48,11 @@ env:
   # a variable is enough now; a secret with the same name still works
   ESPN_LEAGUE_ID: ${{ vars.ESPN_LEAGUE_ID || secrets.ESPN_LEAGUE_ID }}
   ESPN_SEASON: ${{ vars.ESPN_SEASON || 2026 }}
+  # The management overlay: {"Owner": factor}, secret so the published numbers
+  # can carry it without the definition ever entering the repository. Unset is a
+  # no-op, and any uniform setting is identity, so there is nothing to clean up
+  # when it is off.
+  EV_TEAM_BIAS: ${{ secrets.EV_TEAM_BIAS }}
 
 jobs:
   publish:

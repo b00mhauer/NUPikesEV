@@ -27,6 +27,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 
 from evmodel import (config, espn_live, projection_log, roster_strength,  # noqa: E402
+                     team_bias,
                      season_sim, sleeper)
 
 OUT = REPO / "data" / "params.json"
@@ -170,21 +171,34 @@ def build(season: int) -> dict:
                 for m in wk["matchups"] for side in ("home", "away")]
     cal, basis = roster_strength.calibration(raw_priors, finished)
 
+    # The management overlay, read from $EV_TEAM_BIAS. It never touches the
+    # repository -- the published numbers carry it, the file that defines it does
+    # not exist here. Renormalised against each team's own level so the league
+    # total is exactly preserved and any uniform setting is exactly identity;
+    # unset is a no-op and logs nothing.
+    roster_teams = espn_live.teams(raw)
+    levels = {tid: sum(raw_priors[tid].values()) / len(raw_priors[tid])
+              for tid in raw_priors}
+    bias = team_bias.normalise(
+        team_bias.resolve(team_bias.load(), roster_teams), levels)
+
     out_teams = []
-    for t in espn_live.teams(raw):
+    for t in roster_teams:
         tid = t["team_id"]
         players = rosters.get(tid, [])
-        prior = {str(w): round(raw_priors[tid][w] * cal, 3) for w in span}
+        b = bias.get(tid, 1.0)
+        prior = {str(w): round(raw_priors[tid][w] * cal * b, 3) for w in span}
         out_teams.append({
             **t,
             "is_us": bool(OUR_OWNER) and OUR_OWNER.lower() in t["owner"].lower(),
             "prior_weekly": prior,
             "prior_playoff": round(
-                roster_strength.playoff_prior(players, current, replacement, scale) * cal, 3),
+                roster_strength.playoff_prior(players, current, replacement, scale)
+                * cal * b, 3),
             "injuries": notable_injuries(players, scale),
             "lineup_now": [
                 {"pro_team": p["pro_team"],
-                 "proj": round(roster_strength.player_week(p, current, scale), 2)}
+                 "proj": round(roster_strength.player_week(p, current, scale) * b, 2)}
                 for p in players if p["starting"]
             ],
             "starters": [
@@ -194,7 +208,7 @@ def build(season: int) -> dict:
                 {"name": name, "slot": slot,
                  "pos": next((p["pos"] for p in players if p["name"] == name), slot),
                  "proj": round(next((roster_strength.player_week(p, PLAYOFF_WEEK, scale)
-                                     for p in players if p["name"] == name), 0.0), 1)}
+                                     for p in players if p["name"] == name), 0.0) * b, 1)}
                 for slot, name in roster_strength.lineup(
                     players, PLAYOFF_WEEK, current, replacement,
                     ignore_bye=True, scale=scale)[1]
