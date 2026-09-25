@@ -105,7 +105,7 @@ BLEND_WEIGHTS = {"espn": float(os.environ.get("EV_BLEND_ESPN") or 0.5),
 # correction or a real error, and there is no telling from inside the model. At 0
 # it is still pulled, scored and written into params, so weeks of it running
 # alongside will say. EV_FD_WEIGHT turns it up without a commit.
-FD_WEIGHT = float(os.environ.get("EV_FD_WEIGHT") or 0.0)
+FD_WEIGHT = float(os.environ.get("EV_FD_WEIGHT") or 1.0 / 3.0)
 
 # --- the money ----------------------------------------------------------------
 # Twelve owners ante one share each; the pot pays 8/3/1 shares to 1st/2nd/3rd.
