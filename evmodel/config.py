@@ -48,6 +48,42 @@ SLEEPER_STAT_POINTS = {
     "fum_lost": -2.0,
 }
 
+# --- Kicker and D/ST, straight from the league settings -----------------------
+# The scoring map above covers the offensive stats only, which is why both these
+# slots spent the season priced at whatever Sleeper's own standard scoring said.
+# are this league's actual rules (ESPN league settings, pulled 2026-09-25), so a
+# source that ships raw kicking and defensive components can finally be scored
+# the way the league really pays.
+KICKER_POINTS = {
+    "pat_made": 1.0,     "pat_missed": -1.0,
+    "fg_0_39": 3.0,      "fg_missed_0_39": -2.0,
+    "fg_40_49": 4.0,     "fg_50_59": 5.0,      "fg_60_plus": 6.0,
+}
+
+DST_POINTS = {
+    "sack": 1.0,              "interception": 2.0,   "fumble_recovered": 2.0,
+    "safety": 2.0,            "blocked_kick": 2.0,
+    # every way a defence scores is worth the same six
+    "int_return_td": 6.0,     "fumble_return_td": 6.0, "blocked_kick_td": 6.0,
+    "kick_return_td": 6.0,    "punt_return_td": 6.0,   "fumble_recovered_td": 6.0,
+}
+
+# Points allowed, as (lower bound, points). Read downwards and take the first
+# bound the total clears. Note 22-27 is missing from the settings page, which
+# means it is worth nothing -- the one band where a defence is neither rewarded
+# nor punished.
+DST_POINTS_ALLOWED = ((46, -7.0), (35, -4.0), (28, -1.0), (22, 0.0),
+                      (18, 1.0), (14, 1.0), (7, 4.0), (1, 7.0), (0, 10.0))
+
+
+def dst_points_allowed(points: float) -> float:
+    """What a defence earns for holding an offence to `points`."""
+    for lo, pts in DST_POINTS_ALLOWED:
+        if points >= lo:
+            return pts
+    return DST_POINTS_ALLOWED[-1][1]
+
+
 # --- which forecast drives the model ------------------------------------------
 # "espn"    ESPN's season projection spread over the weeks he plays, shaped by
 #           Sleeper's matchup ratio. The long-standing behaviour.
@@ -60,6 +96,16 @@ SLEEPER_STAT_POINTS = {
 PROJECTION_SOURCE = (os.environ.get("EV_PROJECTION_SOURCE") or "blend").strip().lower()
 BLEND_WEIGHTS = {"espn": float(os.environ.get("EV_BLEND_ESPN") or 0.5),
                  "sleeper": float(os.environ.get("EV_BLEND_SLEEPER") or 0.5)}
+
+# --- FanDuel, the third opinion ----------------------------------------------
+# A season total with no weeks in it, so it never touches shape -- it only says
+# whether a player is priced too high or too low overall, as one multiplier on
+# his weekly line. Deliberately 0: it moves team priors about a point a week and
+# would reorder the top of the board immediately, which is either a real
+# correction or a real error, and there is no telling from inside the model. At 0
+# it is still pulled, scored and written into params, so weeks of it running
+# alongside will say. EV_FD_WEIGHT turns it up without a commit.
+FD_WEIGHT = float(os.environ.get("EV_FD_WEIGHT") or 0.0)
 
 # --- the money ----------------------------------------------------------------
 # Twelve owners ante one share each; the pot pays 8/3/1 shares to 1st/2nd/3rd.

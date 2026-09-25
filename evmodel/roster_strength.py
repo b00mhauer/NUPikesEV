@@ -88,6 +88,11 @@ def player_week(p: dict, week: int, scale: float = 1.0) -> float:
     source can price falls through to 0.0, which makes the optimizer skip him and
     price the slot at replacement rather than at an August guess.
     """
+    # FanDuel's contribution, and the only thing it is allowed to do: move the
+    # level. A multiplier cannot resurrect a zero, so byes and the weeks a player
+    # is expected to miss come through untouched. Absent or FD_WEIGHT=0 -> 1.0.
+    fd = float(p.get("fd_scale") or 1.0)
+
     del scale       # vestigial: it lifted the season RATE onto the weekly scale,
                     # and nothing here reads the rate any more. Kept in the
                     # signature because every caller still threads it through.
@@ -97,12 +102,12 @@ def player_week(p: dict, week: int, scale: float = 1.0) -> float:
 
     # Both sources have a live number for this week -> PROJECTION_SOURCE decides.
     if espn_wk is not None and sleep_wk is not None:
-        return _combine(float(espn_wk), float(sleep_wk))
+        return fd * (_combine(float(espn_wk), float(sleep_wk)))
 
     if espn_wk is not None:
-        return float(espn_wk)
+        return fd * (float(espn_wk))
     if sleep_wk is not None:
-        return float(sleep_wk)
+        return fd * (float(sleep_wk))
 
     # Neither source prices THIS week. Either it is a bye, a week one of them has
     # not posted, or the caller asked for the playoff sentinel -- a week number no
@@ -121,16 +126,16 @@ def player_week(p: dict, week: int, scale: float = 1.0) -> float:
     sleep_avg = _mean(sl.values())
 
     if espn_avg is not None and sleep_avg is not None:
-        return _combine(espn_avg, sleep_avg)
+        return fd * (_combine(espn_avg, sleep_avg))
     if espn_avg is not None:
-        return espn_avg
+        return fd * (espn_avg)
     if sleep_avg is not None:
-        return sleep_avg
+        return fd * (sleep_avg)
 
     # Nothing current about him at all. 0.0 makes the optimizer skip him so the
     # slot is priced at the streaming line -- the honest treatment of no
     # information, and never a stale August total.
-    return 0.0
+    return fd * (0.0)
 
 
 # K and D/ST are rostered almost exactly one per team, so a rank-12 line at
@@ -239,9 +244,30 @@ def weekly_priors(players: list[dict], weeks: list[int], current_week: int,
             for w in weeks}
 
 
+PLAYOFF_WEEKS = (15, 16, 17)
+
+
 def playoff_prior(players: list[dict], current_week: int,
-                  replacement: dict[str, float], scale: float = 1.0) -> float:
-    """Weeks 15-17: NFL byes are over, so the roster is at full strength."""
+                  replacement: dict[str, float], scale: float = 1.0,
+                  weeks: tuple[int, ...] = PLAYOFF_WEEKS) -> float:
+    """What a roster is worth per week once the bracket starts.
+
+    This used to be the week-99 sentinel -- "full strength, no byes" -- because
+    nothing had ever asked ESPN or Sleeper for weeks 15-17. Both carry them in
+    full, so the three weeks the title is actually decided in are now priced
+    from their own projections rather than from a stand-in: real matchups, real
+    depth-chart changes, and whoever is expected back by December.
+
+    Averaged rather than summed, because the simulator wants a per-week mean.
+    Falls back to the sentinel when those weeks are missing, which keeps an old
+    params file and any caller without the extended grid working unchanged.
+    """
+    real = [lineup(players, w, current_week, replacement, ignore_bye=True, scale=scale)[0]
+            for w in weeks
+            if any(w in (p.get("weekly") or {}) or w in (p.get("sleeper") or {})
+                   for p in players)]
+    if real:
+        return sum(real) / len(real)
     return lineup(players, 99, current_week, replacement, ignore_bye=True, scale=scale)[0]
 
 

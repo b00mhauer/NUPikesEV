@@ -146,11 +146,16 @@ def load_grid(path, season: int, weeks: list[int], now: float,
         cached = None
 
     if cached is not None and age is not None and age < ttl:
-        # A cache from before a trade or a waiver claim can be missing the players
-        # who arrived since. Covering most of them is fine -- the stragglers fall
-        # through to Sleeper -- but a grid that has gone thin is not worth keeping.
+        # Fresh is not the same as sufficient. Two ways a cache can be fresh and
+        # still wrong: it can predate a trade and be missing the players who
+        # arrived since, or -- the one that bit -- it can have been built for a
+        # SHORTER horizon. A 3-14 cache answering a 3-17 request looked like a hit
+        # and silently left the playoff weeks empty, which is exactly the stand-in
+        # that reading weeks 15-17 was meant to remove.
+        want = set(weeks)
+        have = set().union(*cached.values()) if cached else set()
         covered = sum(1 for wk in cached.values() if any(w in wk for w in weeks))
-        if covered >= 100:
+        if covered >= 100 and want <= have:
             return cached, f"cached {age / 3600:.1f}h old"
 
     grid = weekly_grid(season, weeks)

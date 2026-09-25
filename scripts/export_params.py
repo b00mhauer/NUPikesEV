@@ -26,8 +26,8 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 
-from evmodel import (config, espn_live, projection_log, roster_strength,  # noqa: E402
-                     team_bias,
+from evmodel import (config, espn_live, fanduel, projection_log,  # noqa: E402
+                     roster_strength, team_bias,
                      season_sim, sleeper)
 
 OUT = REPO / "data" / "params.json"
@@ -58,6 +58,11 @@ def build(season: int) -> dict:
     rosters = espn_live.rosters(raw, current)
 
     all_players = [p for team in rosters.values() for p in team]
+    # Defences join to other sources on their team's abbreviation, not their name
+    # -- "Texans D/ST" here is "Houston D/ST" almost everywhere else.
+    pro_abbrev = {t["id"]: t["abbrev"] for t in raw["proteams"]["settings"]["proTeams"]}
+    for p in all_players:
+        p["pro_team_abbrev"] = pro_abbrev.get(p["pro_team"], "")
     scale = roster_strength.rate_scale(all_players, current)
 
     # ESPN's forward grid. The default payload carries the current week only,
@@ -71,7 +76,10 @@ def build(season: int) -> dict:
     # job that runs every 15 minutes during games. It is cached on its own slow
     # clock, and a live week suppresses the refresh entirely: the only numbers
     # moving on a Sunday are this week's, and those come fresh every run.
-    ahead = [w for w in range(current, reg_weeks + 1)]
+    # Through the championship, not the regular season. Weeks 15-17 decide the
+    # title and both sources carry them in full, so prior_playoff is priced off
+    # real projections for those weeks instead of a "full strength" stand-in.
+    ahead = [w for w in range(current, max(reg_weeks, roster_strength.PLAYOFF_WEEKS[-1]) + 1)]
     playing = any(w["state"] == "live" for w in weeks)
     grid, why = espn_live.load_grid(
         REPO / "data" / "espn_weekly.json", season, ahead, time.time(),
@@ -97,15 +105,16 @@ def build(season: int) -> dict:
                       for t in raw["proteams"]["settings"]["proTeams"]}
             # One network pull, two uses: the shape (ratios) the espn path applies,
             # and the level (points in our scoring) the sleeper/blend paths read.
-            rows = {w: sleeper.fetch_week(season, w) for w in span_ahead}
+            # `ahead` runs through the championship, so Sleeper is pulled for the
+            # playoff weeks too -- the level path needs 15-17 to price the bracket.
+            # The ratio path stays on the regular season, which is all it shapes.
+            rows = {w: sleeper.fetch_week(season, w) for w in ahead}
             factors, shape = sleeper.week_factors(
                 all_players, season, span_ahead, abbrev,
-                by_week={w: sleeper.index(r) for w, r in rows.items()})
-            cur_rows = sleeper.fetch_week(season, current)
+                by_week={w: sleeper.index(rows[w]) for w in span_ahead})
             pts, lvl = sleeper.week_points(
-                all_players, season, span_ahead + [current], abbrev,
-                by_week={**{w: sleeper.index_points(r) for w, r in rows.items()},
-                         current: sleeper.index_points(cur_rows)})
+                all_players, season, ahead, abbrev,
+                by_week={w: sleeper.index_points(r) for w, r in rows.items()})
             shape["level_coverage"] = lvl["coverage"]
             for p in all_players:
                 p["factors"] = factors.get(p["player_id"], {})
@@ -134,6 +143,27 @@ def build(season: int) -> dict:
               f"live projection from either source and price at 0.0"
               + (f"; {len(starters)} of them are in a lineup: "
                  + ", ".join(starters[:8]) if starters else " (none in a lineup)"))
+
+    # FanDuel: a third, genuinely independent opinion on the LEVEL. Allowed to
+    # fail -- an undocumented endpoint can change without warning, and the model
+    # must degrade to the two-source blend rather than break. At FD_WEIGHT=0 the
+    # scales come back empty and every player is untouched; the pull still runs
+    # so the comparison is recorded either way.
+    fd = {"weight": config.FD_WEIGHT, "priced": 0, "scaled": 0, "error": None}
+    try:
+        theirs = fanduel.totals(games=len(ahead))
+        ours = {p["player_id"]: sum(roster_strength.player_week(p, w, scale) for w in ahead)
+                for p in all_players}
+        fd_scale = fanduel.scales(all_players, ours, theirs, config.FD_WEIGHT)
+        for p in all_players:
+            p["fd_scale"] = fd_scale.get(p["player_id"], 1.0)
+        fd["priced"] = sum(1 for p in all_players if fanduel.key(p) in theirs)
+        fd["scaled"] = len(fd_scale)
+        print(f"[params] fanduel: {fd['priced']}/{len(all_players)} priced, "
+              f"{fd['scaled']} scaled at weight {config.FD_WEIGHT:.2f}")
+    except Exception as exc:                      # noqa: BLE001 - never fatal
+        fd["error"] = f"{type(exc).__name__}: {exc}"[:120]
+        print(f"[params] WARNING fanduel unavailable ({fd['error']}) - two-source blend")
 
     # the live week (if any) gets real scores + the share still to kick off
     live = {}
@@ -239,6 +269,7 @@ def build(season: int) -> dict:
             "players": len(all_players),
             "unpriced": len(unpriced),
             "projection_source": config.PROJECTION_SOURCE,
+            "fanduel": fd,
             "matchup_source": "sleeper" if shape.get("matched") else "none (flat rate)",
             "matchup_coverage": shape.get("coverage", 0.0),
             "matchup_error": shape.get("error"),
