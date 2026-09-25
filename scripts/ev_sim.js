@@ -249,7 +249,17 @@
     (matchup.schedule || []).forEach(function (m) {
       var w = m.matchupPeriodId;
       if (!w || w > regWeeks || !m.home || !m.away) return;
-      var hp = Number(m.home.totalPoints) || 0, ap = Number(m.away.totalPoints) || 0;
+      /* totalPointsLive, not totalPoints. ESPN leaves totalPoints at 0.0 while a
+         game is being played and only settles it afterwards, so keying the state
+         off it meant a week never went live: the header sat on "projected" and
+         the panel kept showing the pre-game number for the whole slate. On the
+         Thursday of week 3 that had three matchups displaying the wrong side as
+         favourite while ESPN already had the lead changed. */
+      var pts = function (t) {
+        var live = t.totalPointsLive;
+        return Number(live === undefined || live === null ? t.totalPoints : live) || 0;
+      };
+      var hp = pts(m.home), ap = pts(m.away);
       if (!weeks[w]) weeks[w] = { week: w, state: "future", matchups: [] };
       weeks[w].matchups.push({
         home: m.home.teamId, away: m.away.teamId,

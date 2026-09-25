@@ -278,8 +278,13 @@ def weeks(raw: dict, reg_season_weeks: int) -> list[dict]:
         if not w or w > reg_season_weeks or "home" not in m or "away" not in m:
             continue
         home, away = m["home"], m["away"]
-        hp = float(home.get("totalPoints") or 0.0)
-        ap = float(away.get("totalPoints") or 0.0)
+        # totalPointsLive, not totalPoints. ESPN leaves totalPoints at 0.0 while a
+        # game is being played and only settles it afterwards, so keying the state
+        # off it meant a week never went live: the page sat on "projected" and kept
+        # showing the pre-game number for the whole slate. live_week() below always
+        # read the live field -- it was only the state that did not.
+        hp = float(home.get("totalPointsLive", home.get("totalPoints")) or 0.0)
+        ap = float(away.get("totalPointsLive", away.get("totalPoints")) or 0.0)
         settled = m.get("winner", "UNDECIDED") != "UNDECIDED"
         wk = by_week.setdefault(w, {"week": w, "state": "future", "matchups": []})
         wk["matchups"].append({"home": home["teamId"], "away": away["teamId"],
