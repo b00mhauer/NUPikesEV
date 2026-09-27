@@ -75,24 +75,48 @@ jobs:
             exit 1
           fi
 
+      # One run, several snapshots. The cron asks for a tick every 15 minutes
+      # during games and GitHub honours almost none of it -- scheduled workflows
+      # are the first thing dropped when the shared runners are busy, and on the
+      # Sunday of week 4 the tape got two points five hours apart against a
+      # schedule asking for twenty. Four separate runs an hour is the fragile
+      # shape; one run that loops inside itself is not, because once a runner is
+      # allocated nobody can take it away. So a live week sweeps for most of an
+      # hour and the next cron picks up wherever this one stopped.
       - name: Price the season
-        run: python scripts/record_snapshot.py
-
-      - name: Commit the tape
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          # espn_weekly.json is the cached forward grid. It MUST ride back into
-          # the repo: the runner starts from a fresh checkout every time, so an
-          # uncommitted cache is no cache at all and each run would pull all
-          # ~37 MB of it again, including the 15-minute runs during games.
-          git add data/ev_history.json data/projection_log.json data/espn_weekly.json
-          if git diff --cached --quiet; then
-            echo "nothing moved"
-          else
-            git commit -m "tape: snapshot $(date -u +'%Y-%m-%d %H:%M UTC') [skip ci]"
-            git push
-          fi
+          SWEEPS=4
+          for i in $(seq 1 $SWEEPS); do
+            python scripts/record_snapshot.py
+            # espn_weekly.json is the cached forward grid. It MUST ride back into
+            # the repo: the runner starts from a fresh checkout every time, so an
+            # uncommitted cache is no cache at all and each run would pull all
+            # ~37 MB of it again.
+            git add data/ev_history.json data/projection_log.json data/espn_weekly.json
+            if git diff --cached --quiet; then
+              echo "sweep $i: nothing moved"
+            else
+              git commit -m "tape: snapshot $(date -u +'%Y-%m-%d %H:%M UTC') [skip ci]"
+              git pull --rebase --autostash origin main || true
+              git push || echo "sweep $i: push lost a race; the next sweep carries it"
+            fi
+            # Only AFTER the first snapshot, because params.json is gitignored and
+            # does not exist on a fresh runner -- testing it before this point
+            # always reads "no live week" and quietly collapses the sweep to one.
+            if [ "$i" = "1" ]; then
+              live=$(python -c 'import json;\
+          d=json.load(open("data/params.json"));\
+          print("1" if any(w["state"]=="live" for w in d["weeks"]) else "0")' 2>/dev/null || echo 0)
+              if [ "$live" != "1" ]; then
+                echo "no live week -> one sweep is enough"
+                break
+              fi
+              echo "live week -> sweeping $SWEEPS times, 15 minutes apart"
+            fi
+            [ "$i" -lt "$SWEEPS" ] && sleep 900
+          done
 
       - name: Build the page
         run: |
