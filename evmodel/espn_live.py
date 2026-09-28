@@ -33,7 +33,7 @@ from pathlib import Path
 
 import requests
 
-from . import config, season_enders
+from . import config
 
 TIMEOUT = 45
 RETRIES = 4
@@ -44,12 +44,7 @@ NFL_WEEKS = 18
 # Out for this week only vs. out for the season. ESPN's own projection already
 # marks a player down; this decides whether he can be in a lineup at all.
 OUT_THIS_WEEK = {"OUT", "DOUBTFUL", "SUSPENSION"}
-# Despite the name, these are the statuses that END a season -- `playable`
-# rejects them for every week, not just the one in front of us. OUT_SEASON is
-# season_enders.STATUS, stamped from data/out_for_season.json for the days
-# between the news breaking and the team actually making the IR move. Kept as
-# a literal so this module imports nothing new.
-OUT_FOR_NOW = {"INJURY_RESERVE", "NOT_ACTIVE", "OUT_SEASON"}
+OUT_FOR_NOW = {"INJURY_RESERVE", "NOT_ACTIVE"}
 IR_SLOT = 21
 BENCH_SLOT = 20
 STARTER_SLOTS = {0, 2, 4, 6, 16, 17, 23}   # QB RB WR TE K DST RB/WR-flex
@@ -260,11 +255,6 @@ def rosters(raw: dict, current_week: int) -> dict[int, list[dict]]:
     for team in raw["rosters"].get("teams", []):
         out[team["id"]] = [player_line(e, season, current_week, byes)
                            for e in team.get("roster", {}).get("entries", [])]
-    # Applied here rather than in the exporter so that everything reading a
-    # roster -- the priors, the grade grid, the replacement pools, the snapshot
-    # -- sees one answer about who still has a season.
-    for players in out.values():
-        season_enders.mark(players, season)
     return out
 
 
