@@ -88,8 +88,19 @@ jobs:
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           SWEEPS=4
+          ok=0
           for i in $(seq 1 $SWEEPS); do
-            python scripts/record_snapshot.py
+            # A sweep is allowed to fail. ESPN times out, a rebase loses a race,
+            # and none of that should cost the site its deploy -- the step failing
+            # SKIPS "Build the page" and the whole deploy job, which is how nine
+            # hours of stale site hid behind a healthy-looking tape. The run only
+            # fails if every sweep failed, which is a real outage worth a red X.
+            if ! python scripts/record_snapshot.py; then
+              echo "sweep $i: snapshot failed; carrying on"
+              if [ "$i" -lt "$SWEEPS" ]; then sleep 900; fi
+              continue
+            fi
+            ok=$((ok + 1))
             # espn_weekly.json is the cached forward grid. It MUST ride back into
             # the repo: the runner starts from a fresh checkout every time, so an
             # uncommitted cache is no cache at all and each run would pull all
@@ -115,8 +126,16 @@ jobs:
               fi
               echo "live week -> sweeping $SWEEPS times, 15 minutes apart"
             fi
-            [ "$i" -lt "$SWEEPS" ] && sleep 900
+            # A plain `[ ... ] && sleep` here is a trap: on the last pass the
+            # test is false, the && chain returns 1, and that is the loop's exit
+            # status, so the step fails under bash -e AFTER doing all its work.
+            # That is exactly what happened -- four sweeps pushed, then exit 1,
+            # and "Build the page" plus the deploy were skipped for nine hours
+            # while the tape looked healthy.
+            if [ "$i" -lt "$SWEEPS" ]; then sleep 900; fi
           done
+          echo "$ok of $SWEEPS sweep(s) landed"
+          [ "$ok" -gt 0 ] || { echo "::error::every sweep failed"; exit 1; }
 
       - name: Build the page
         run: |
