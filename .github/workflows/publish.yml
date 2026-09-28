@@ -81,13 +81,23 @@ jobs:
       # Sunday of week 4 the tape got two points five hours apart against a
       # schedule asking for twenty. Four separate runs an hour is the fragile
       # shape; one run that loops inside itself is not, because once a runner is
-      # allocated nobody can take it away. So a live week sweeps for most of an
-      # hour and the next cron picks up wherever this one stopped.
+      # allocated nobody can take it away.
+      #
+      # SPACING is set so the whole run finishes INSIDE one cron interval, and
+      # that is the load-bearing constraint. The page reads ev_history.json from
+      # the deployed site, so the tape only becomes visible when the deploy job
+      # runs, which is once per run, at the end. A 46-minute run therefore
+      # published every 46 minutes no matter how dense the tape underneath it
+      # was -- and worse, the concurrency group holds only ONE pending run, so
+      # two of every three scheduled ticks were being discarded while it slept.
+      # Four sweeps five minutes apart gives a point every five minutes AND a
+      # deploy every quarter hour, and every cron tick gets its own run again.
       - name: Price the season
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           SWEEPS=4
+          SPACING=300
           ok=0
           for i in $(seq 1 $SWEEPS); do
             # A sweep is allowed to fail. ESPN times out, a rebase loses a race,
@@ -97,7 +107,7 @@ jobs:
             # fails if every sweep failed, which is a real outage worth a red X.
             if ! python scripts/record_snapshot.py; then
               echo "sweep $i: snapshot failed; carrying on"
-              if [ "$i" -lt "$SWEEPS" ]; then sleep 900; fi
+              if [ "$i" -lt "$SWEEPS" ]; then sleep "$SPACING"; fi
               continue
             fi
             ok=$((ok + 1))
@@ -124,7 +134,7 @@ jobs:
                 echo "no live week -> one sweep is enough"
                 break
               fi
-              echo "live week -> sweeping $SWEEPS times, 15 minutes apart"
+              echo "live week -> sweeping $SWEEPS times, $SPACING seconds apart"
             fi
             # A plain `[ ... ] && sleep` here is a trap: on the last pass the
             # test is false, the && chain returns 1, and that is the loop's exit
@@ -132,7 +142,7 @@ jobs:
             # That is exactly what happened -- four sweeps pushed, then exit 1,
             # and "Build the page" plus the deploy were skipped for nine hours
             # while the tape looked healthy.
-            if [ "$i" -lt "$SWEEPS" ]; then sleep 900; fi
+            if [ "$i" -lt "$SWEEPS" ]; then sleep "$SPACING"; fi
           done
           echo "$ok of $SWEEPS sweep(s) landed"
           [ "$ok" -gt 0 ] || { echo "::error::every sweep failed"; exit 1; }
