@@ -189,7 +189,11 @@ def lineup(players: list[dict], week: int, current_week: int,
     avail: dict[str, list[tuple[float, str]]] = {}
     for p in players:
         if ignore_bye:
-            if p["on_ir"] or p["status"] in espn_live.OUT_FOR_NOW:
+            # FULL STRENGTH means "if nobody were hurt", so a weekly designation
+            # and a bye are both ignored here -- a player back in week 7 belongs
+            # in the ceiling. A player with no season left does not, and that is
+            # the projections' verdict now rather than the fantasy IR slot's.
+            if espn_live.done_for_season(p, current_week):
                 continue
         elif not espn_live.playable(p, week, current_week):
             continue

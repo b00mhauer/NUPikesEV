@@ -232,17 +232,50 @@ def player_line(entry: dict, season: int, current_week: int,
     }
 
 
+def done_for_season(p: dict, current_week: int) -> bool:
+    """ESPN's own verdict on whether a player has any football left.
+
+    It publishes a projection for every remaining week and maintains them: a
+    player it expects back in week 8 reads 0.00 until then and ~10 after, and a
+    player whose season is over reads 0.00 straight through. So "is he finished"
+    is a question the data already answers, and reading it here means the answer
+    keeps up with the news on its own rather than waiting on a list somebody has
+    to maintain.
+
+    No row at all is not a verdict -- a player ESPN has never priced returns
+    False, and the lineup falls through to whatever Sleeper says about him.
+    """
+    ahead = [v for w, v in (p.get("weekly") or {}).items() if w >= current_week]
+    return bool(ahead) and not any(v > 0 for v in ahead)
+
+
 def playable(p: dict, week: int, current_week: int) -> bool:
     """Can this player be in a starting lineup in `week`?
 
-    Season-enders are gone for good; a weekly designation only takes him out of
-    the week in front of us, because by week 9 a current 'OUT' tells us nothing.
+    Three different facts, and they expire at different rates:
+
+    A season being OVER is permanent, and the projections say so -- see
+    done_for_season. This used to be read off `on_ir` instead, which is the
+    FANTASY roster slot, and that was wrong in the expensive direction: a
+    manager parks a four-week injury there to free a bench spot, and the model
+    wrote the player off through the championship. ESPN had him coming back the
+    whole time -- A.J. Brown at ~10/wk from week 8, Jayden Daniels ~18 from week
+    6, Caleb Williams ~17 from week 6. Eleven players were being deleted from
+    their teams' priors for the rest of the season.
+
+    A BYE is permanent but only for its own week.
+
+    Everything else -- IR, ruled out, doubtful, suspended -- is a fact about the
+    week in front of us and nothing more. It still binds absolutely there (a
+    player on IR cannot be started today whatever anyone projects), and it says
+    nothing about week 9, where the projection is the better witness.
     """
-    if p["on_ir"] or p["status"] in OUT_FOR_NOW:
+    if done_for_season(p, current_week):
         return False
     if p["bye"] == week:
         return False
-    if week == current_week and p["status"] in OUT_THIS_WEEK:
+    if week == current_week and (p["on_ir"] or
+                                 p["status"] in OUT_THIS_WEEK | OUT_FOR_NOW):
         return False
     return True
 

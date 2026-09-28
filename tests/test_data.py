@@ -25,10 +25,12 @@ def stat(source, split, total, season=2026, week=None):
 
 
 def entry(pid, name, pos_id, pro_team, slot, proj_season, actual, week_proj=None,
-          injury="ACTIVE", week=3):
+          injury="ACTIVE", week=3, weeks=None):
     stats = [stat(1, 0, proj_season), stat(0, 0, actual)]
     if week_proj is not None:
         stats.append(stat(1, 1, week_proj, week=week))
+    for w, v in (weeks or {}).items():          # the forward grid, week -> points
+        stats.append(stat(1, 1, v, week=w))
     return {"lineupSlotId": slot,
             "playerPoolEntry": {"player": {
                 "id": pid, "fullName": name, "defaultPositionId": pos_id,
@@ -73,7 +75,14 @@ def test_producing_does_not_cut_a_players_rest_of_season_rate():
     assert all(x["rate"] >= 0 for x in (idle, hot, better))
 
 
+BACK = {w: 0.0 for w in range(3, 8)} | {w: 10.0 for w in range(8, 18)}
+NEVER = {w: 0.0 for w in range(3, 18)}
+
+
 def test_who_can_play_and_when():
+    """Three facts with three different shelf lives: a season being over is
+    permanent, a bye is permanent for one week, and every injury designation is
+    about the week in front of us only."""
     byes = espn_live.bye_weeks(PROTEAMS)
     make = lambda **kw: espn_live.player_line(                       # noqa: E731
         entry(3, "Guy", 2, 1, kw.pop("slot", 2), 200.0, 20.0, **kw), 2026, 3, byes)
@@ -86,11 +95,44 @@ def test_who_can_play_and_when():
     assert not espn_live.playable(out, 3, 3), "ruled out this week"
     assert espn_live.playable(out, 4, 3), "a weekly OUT says nothing about week 4"
 
-    ir = make(injury="INJURY_RESERVE")
-    assert not espn_live.playable(ir, 3, 3) and not espn_live.playable(ir, 9, 3)
 
-    stashed = make(slot=espn_live.IR_SLOT)
-    assert not espn_live.playable(stashed, 3, 3) and not espn_live.playable(stashed, 9, 3)
+def test_a_stashed_player_espn_expects_back_is_not_written_off():
+    """The expensive bug. `on_ir` is the FANTASY roster slot -- a manager parks a
+    four-week injury there to free a bench spot -- and reading it as terminal
+    deleted eleven real players from their teams' priors through the
+    championship while ESPN had them all returning. A.J. Brown reads 0.00 to
+    week 7 and ~10 from week 8; that is the shape below."""
+    byes = espn_live.bye_weeks(PROTEAMS)
+    make = lambda **kw: espn_live.player_line(                       # noqa: E731
+        entry(3, "Guy", 2, 1, kw.pop("slot", 2), 200.0, 20.0, **kw), 2026, 3, byes)
+
+    for stashed in (make(slot=espn_live.IR_SLOT, weeks=BACK),
+                    make(injury="INJURY_RESERVE", weeks=BACK)):
+        assert not espn_live.playable(stashed, 3, 3), "cannot be started today"
+        assert espn_live.playable(stashed, 8, 3), "ESPN has him back in week 8"
+        assert espn_live.playable(stashed, 17, 3)
+
+
+def test_a_season_that_is_over_is_read_off_the_projections():
+    byes = espn_live.bye_weeks(PROTEAMS)
+    make = lambda **kw: espn_live.player_line(                       # noqa: E731
+        entry(3, "Guy", 2, 1, kw.pop("slot", 2), 200.0, 20.0, **kw), 2026, 3, byes)
+
+    done = make(weeks=NEVER)
+    assert espn_live.done_for_season(done, 3)
+    assert not any(espn_live.playable(done, w, 3) for w in range(3, 18))
+    # ...and it holds even with no injury designation at all, which is the point:
+    # the feed zeroes a player before it relabels him, so this catches the news
+    # without anybody maintaining a list.
+    assert done["status"] == "ACTIVE" and not done["on_ir"]
+
+    # A player ESPN has never priced is not a verdict, just silence.
+    assert not espn_live.done_for_season(make(), 3)
+    # Nor is a player whose zeros are all behind him.
+    past = make(weeks={3: 0.0, 4: 0.0, 5: 12.0})
+    assert not espn_live.done_for_season(past, 3)
+    # And asking past the end of what ESPN has published is silence, not a verdict.
+    assert not espn_live.done_for_season(past, 6)
 
 
 def test_kickoff_ramp_bleeds_variance_off_through_the_afternoon():
