@@ -1,0 +1,6 @@
+{
+  "_readme": "Players with no season left, for the days between the news and the IR move. See evmodel/season_enders.py. A name here is treated exactly as IR. Match on full name or ESPN player id.",
+  "2026": {
+    "De'Von Achane": "Out for the season; ESPN still carried him OUT with a full ~15/wk projection through week 17 (2026-09-28)"
+  }
+}

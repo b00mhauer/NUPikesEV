@@ -621,7 +621,7 @@ function paint(){
   el("money").innerHTML = teams.map(function(t){
     var sw = baseline ? t.ev_usd - byId(baseline, t.team_id).ev_usd : sinceWeekStart(t.team_id);
     var q = teamParams(t.team_id) || {};
-    var hurt = (q.injuries || []).filter(function(i){ return i.on_ir || i.status === "OUT"; }).length;
+    var hurt = (q.injuries || []).filter(function(i){ return i.on_ir || i.status === "OUT" || i.status === "OUT_SEASON"; }).length;
     return '<tr class="row' + (String(t.team_id) === MINE ? " us" : "") + '" data-id="' + t.team_id + '">' +
       '<td><span class="tm">' + esc(t.abbrev) + (hurt ? ' <span class="hurt" title="' + hurt +
         ' out">✖</span>' : "") + '</span><span class="own">' + esc(t.owner) + '</span></td>' +
@@ -1219,7 +1219,7 @@ function detail(t){
   var inj = (q.injuries || []).length ?
     '<div class="inj"><b>Out / hurt</b>' + q.injuries.map(function(i){
       return '<div class="row"><span>' + esc(i.name) + " <em>" + esc(i.pos) + "</em></span>" +
-        '<span>' + esc(i.on_ir ? "IR" : i.status.toLowerCase()) + " · " + i.cost.toFixed(1) + "/wk</span></div>";
+        '<span>' + esc(i.status === "OUT_SEASON" ? "out for season" : (i.on_ir ? "IR" : i.status.toLowerCase())) + " · " + i.cost.toFixed(1) + "/wk</span></div>";
     }).join("") + "</div>" : "";
 
   var gs = gradeScale();
