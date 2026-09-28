@@ -83,20 +83,24 @@ jobs:
       # shape; one run that loops inside itself is not, because once a runner is
       # allocated nobody can take it away.
       #
-      # SPACING is set so the whole run finishes INSIDE one cron interval, and
-      # that is the load-bearing constraint. The page reads ev_history.json from
-      # the deployed site, so the tape only becomes visible when the deploy job
-      # runs, which is once per run, at the end. A 46-minute run therefore
-      # published every 46 minutes no matter how dense the tape underneath it
-      # was -- and worse, the concurrency group holds only ONE pending run, so
-      # two of every three scheduled ticks were being discarded while it slept.
-      # Four sweeps five minutes apart gives a point every five minutes AND a
-      # deploy every quarter hour, and every cron tick gets its own run again.
+      # How long to sweep for is set by how often GitHub actually gives us a
+      # runner, which is NOT what the cron asks for. Measured across Sunday of
+      # week 4: consecutive runs started 35 to 102 minutes apart against a
+      # schedule asking for 15. So the run should cover the hole rather than
+      # finish early and wait in it -- eight sweeps five minutes apart is about
+      # 35 minutes of continuous cover, which is roughly the observed gap.
+      #
+      # This only works because the page no longer waits for the deploy to see
+      # the tape. It reads ev_history.json from the repository as well as from
+      # beside itself, and the sweep commits every five minutes while the deploy
+      # happens once, at the end. Before that, a long run published the chart in
+      # 45-minute steps however dense the tape underneath it was, which is the
+      # opposite of the point.
       - name: Price the season
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          SWEEPS=4
+          SWEEPS=8
           SPACING=300
           ok=0
           for i in $(seq 1 $SWEEPS); do

@@ -336,6 +336,7 @@ BODY = """
 # both render correctly, and rewriting them churns the diff for nothing.
 SCRIPT = r"""
 var P0 = __PARAMS__, H0 = __HISTORY__, SIMS = __SIMS__, SEED = 20260101;
+var TAPE_RAW = __TAPE_RAW__;
 var COMMISH = __COMMISH__;
 var SEASON = P0.season;
 var params = JSON.parse(JSON.stringify(P0));
@@ -370,17 +371,30 @@ function json(url){
    by the scheduled job; opened from disk those fetches fail and the bake stands. */
 /* Served beside its data files (which the scheduled run rewrites), the page
    picks up fresh numbers without being rebuilt. Opened from a disk those fetches
-   fail and the bake stands. */
+   fail and the bake stands.
+
+   The tape is also read from the repository itself. The copy beside us is only
+   as fresh as the last DEPLOY, which happens once per run at the end, while the
+   committed copy gains a point every few minutes as the run sweeps -- so the
+   chart used to move in 45-minute steps no matter how dense the tape underneath
+   it was. Both are fetched and the one further along wins, so raw going away
+   costs nothing but the freshness. */
+function nul(){ return null; }
 function pullBake(){
   if(location.protocol === "file:") return Promise.resolve();
-  return Promise.all([json("ev_season.json").catch(function(){ return null; }),
-                      json("ev_history.json").catch(function(){ return null; })])
+  var srcs = [json("ev_season.json").catch(nul), json("ev_history.json").catch(nul)];
+  if(TAPE_RAW) srcs.push(json(TAPE_RAW + "ev_history.json").catch(nul));
+  return Promise.all(srcs)
     .then(function(res){
       if(res[0] && res[0].teams && (!dataStamp || res[0].generated_at >= dataStamp)){
         params = res[0]; dataStamp = params.generated_at;
         baked = {}; params.weeks.forEach(function(w){ baked[w.week] = w.state; });
       }
-      if(res[1] && res[1].at) hist = res[1];
+      var tape = null;
+      [res[1], res[2]].forEach(function(h){
+        if(h && h.at && h.at.length && (!tape || h.at[h.at.length-1] > tape.at[tape.at.length-1])) tape = h;
+      });
+      if(tape) hist = tape;
     });
 }
 
@@ -1286,7 +1300,16 @@ def build() -> str:
                 .replace("$P1", f"{share*7:,}")
                 .replace("$P2", f"{share*2:,}")
                 .replace("$ENTRY", f"{share:,}"))
-    script = (SCRIPT.replace("__COMMISH__", json.dumps(commish, separators=(",", ":")))
+    # Where the browser can read the COMMITTED tape, which the sweep pushes every
+    # few minutes, rather than the deployed copy, which only changes when the run
+    # ends. Emitted from the environment so a local build simply has no raw base
+    # and falls back to the file beside it. Public repository, so no credential.
+    slug = os.environ.get("GITHUB_REPOSITORY")
+    branch = os.environ.get("GITHUB_REF_NAME") or "main"
+    tape_raw = (f"https://raw.githubusercontent.com/{slug}/{branch}/data/"
+                if slug else None)
+    script = (SCRIPT.replace("__TAPE_RAW__", json.dumps(tape_raw))
+                    .replace("__COMMISH__", json.dumps(commish, separators=(",", ":")))
                     .replace("__PARAMS__", json.dumps(params, separators=(",", ":")))
                     .replace("__HISTORY__", json.dumps(history, separators=(",", ":")))
                     .replace("__SIMS__", str(SIMS)))
