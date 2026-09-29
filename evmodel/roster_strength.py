@@ -184,8 +184,21 @@ def replacement_levels(all_players: list[dict], week: int = PLAYOFF_SENTINEL,
 
 def lineup(players: list[dict], week: int, current_week: int,
            replacement: dict[str, float], ignore_bye: bool = False,
-           scale: float = 1.0) -> tuple[float, list]:
-    """Best legal lineup for one week -> (projected points, the names in it)."""
+           scale: float = 1.0, streams: set[str] | None = None,
+           wire: dict[str, float] | None = None) -> tuple[float, list]:
+    """Best legal lineup for one week -> (projected points, the names in it).
+
+    `streams` names the positions this manager streams (see evmodel.streaming)
+    and `wire` is what the waiver pool offers at each of them this week. A
+    streamer is not stuck with what he rosters: his K and D/ST slots price at
+    the better of his own man and the wire, because he will drop and re-add the
+    moment a matchup says to. Pricing him as an owner understated a real
+    streamer by more than a point a week at D/ST in this league.
+
+    It is max(), never the wire alone -- nobody benches a good defence to chase
+    a worse one -- so the assumption can only ever help a team, and a manager
+    who happens to roster an excellent kicker is unaffected by being flagged.
+    """
     avail: dict[str, list[tuple[float, str]]] = {}
     for p in players:
         if ignore_bye:
@@ -201,13 +214,25 @@ def lineup(players: list[dict], week: int, current_week: int,
     for pos in avail:
         avail[pos].sort(reverse=True)
 
+    streams = streams or set()
+    wire = wire or {}
+
     total, picked, used = 0.0, [], {}
     for pos, count in STARTERS:
         pool = avail.get(pos, [])
+        # What this manager can reach on the wire this week, if he streams here.
+        off_wire = wire.get(pos) if pos in streams else None
         for slot in range(count):
-            if slot < len(pool):
-                total += pool[slot][0]
-                picked.append((pos, pool[slot][1]))
+            own = pool[slot] if slot < len(pool) else None
+            if own and (off_wire is None or own[0] >= off_wire):
+                total += own[0]
+                picked.append((pos, own[1]))
+            elif off_wire is not None:
+                total += off_wire
+                picked.append((pos, f"(wire {pos})"))
+            elif own:
+                total += own[0]
+                picked.append((pos, own[1]))
             else:
                 total += replacement.get(pos, 0.0)
                 picked.append((pos, f"(streamed {pos})"))
@@ -242,9 +267,12 @@ def replacement_by_week(all_players: list[dict], weeks: list[int],
 
 def weekly_priors(players: list[dict], weeks: list[int], current_week: int,
                   replacement: dict[int, dict[str, float]],
-                  scale: float = 1.0) -> dict[int, float]:
-    """`replacement` is per-week (see replacement_by_week)."""
-    return {w: lineup(players, w, current_week, replacement[w], scale=scale)[0]
+                  scale: float = 1.0, streams: set[str] | None = None,
+                  wire: dict[int, dict[str, float]] | None = None) -> dict[int, float]:
+    """`replacement` is per-week (see replacement_by_week), and so is `wire`."""
+    wire = wire or {}
+    return {w: lineup(players, w, current_week, replacement[w], scale=scale,
+                      streams=streams, wire=wire.get(w))[0]
             for w in weeks}
 
 
@@ -253,7 +281,9 @@ PLAYOFF_WEEKS = (15, 16, 17)
 
 def playoff_prior(players: list[dict], current_week: int,
                   replacement: dict[str, float], scale: float = 1.0,
-                  weeks: tuple[int, ...] = PLAYOFF_WEEKS) -> float:
+                  weeks: tuple[int, ...] = PLAYOFF_WEEKS,
+                  streams: set[str] | None = None,
+                  wire: dict[int, dict[str, float]] | None = None) -> float:
     """What a roster is worth per week once the bracket starts.
 
     This used to be the week-99 sentinel -- "full strength, no byes" -- because
@@ -266,13 +296,16 @@ def playoff_prior(players: list[dict], current_week: int,
     Falls back to the sentinel when those weeks are missing, which keeps an old
     params file and any caller without the extended grid working unchanged.
     """
-    real = [lineup(players, w, current_week, replacement, ignore_bye=True, scale=scale)[0]
+    wire = wire or {}
+    real = [lineup(players, w, current_week, replacement, ignore_bye=True, scale=scale,
+                   streams=streams, wire=wire.get(w))[0]
             for w in weeks
             if any(w in (p.get("weekly") or {}) or w in (p.get("sleeper") or {})
                    for p in players)]
     if real:
         return sum(real) / len(real)
-    return lineup(players, 99, current_week, replacement, ignore_bye=True, scale=scale)[0]
+    return lineup(players, 99, current_week, replacement, ignore_bye=True, scale=scale,
+                  streams=streams)[0]
 
 
 def calibration(priors: dict[int, dict[int, float]], finished: list[tuple[int, int, float]],

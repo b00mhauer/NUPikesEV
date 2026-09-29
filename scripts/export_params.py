@@ -27,11 +27,12 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 
 from evmodel import (config, espn_live, fanduel, projection_log,  # noqa: E402
-                     roster_strength, team_bias,
+                     roster_strength, streaming, team_bias,
                      season_sim, sleeper)
 
 OUT = REPO / "data" / "params.json"
 FORWARD_LOG = REPO / "data" / "projection_log.json"
+WIRE = REPO / "data" / "wire_levels.json"
 # Whose card sits at the top of the page. Set it in the environment, not here —
 # the repository is public and there is no reason to publish anyone's name.
 OUR_OWNER = os.environ.get("EV_OWNER", "")
@@ -193,7 +194,30 @@ def build(season: int) -> dict:
 
     span = list(range(1, reg_weeks + 1))
     rep_week = roster_strength.replacement_by_week(all_players, span, current)
-    raw_priors = {tid: roster_strength.weekly_priors(pl, span, current, rep_week, scale)
+
+    # Who streams K / D/ST, and what the wire is worth to them. A streamer is
+    # not stuck with the defence on his bench -- see evmodel.streaming for why
+    # pricing him as an owner was wrong by more than a point a week. Unset means
+    # nobody streams, which is exactly the behaviour before this existed, and a
+    # failed fetch degrades to the same thing rather than failing the build.
+    roster_teams = espn_live.teams(raw)
+    who = streaming.resolve(streaming.load(), roster_teams)
+    wire, wire_note = ({}, "nobody flagged")
+    if any(who.values()):
+        # FUTURE weeks only. A completed week's prior is compared against what
+        # the team actually scored (that is what fits the calibration scale), so
+        # crediting it with a defence it could have streamed in hindsight would
+        # inflate the prior and drag the scale down for the whole league. It
+        # moved weeks 1-3 by about two points before this line existed.
+        wire, wire_note = streaming.wire_levels(
+            WIRE, season,
+            sorted({w for w in span if w >= current} | set(roster_strength.PLAYOFF_WEEKS)),
+            time.time())
+    print(f"[params] wire: {wire_note}, {len(wire)} week(s) priced, "
+          f"{sum(1 for v in who.values() if v)} team(s) streaming")
+
+    raw_priors = {tid: roster_strength.weekly_priors(pl, span, current, rep_week, scale,
+                                                     streams=who.get(tid), wire=wire)
                   for tid, pl in rosters.items()}
 
     finished = [(m[side], wk["week"], m[f"{side}_points"])
@@ -206,7 +230,6 @@ def build(season: int) -> dict:
     # not exist here. Renormalised against each team's own level so the league
     # total is exactly preserved and any uniform setting is exactly identity;
     # unset is a no-op and logs nothing.
-    roster_teams = espn_live.teams(raw)
     levels = {tid: sum(raw_priors[tid].values()) / len(raw_priors[tid])
               for tid in raw_priors}
     bias = team_bias.normalise(
@@ -223,7 +246,8 @@ def build(season: int) -> dict:
             "is_us": bool(OUR_OWNER) and OUR_OWNER.lower() in t["owner"].lower(),
             "prior_weekly": prior,
             "prior_playoff": round(
-                roster_strength.playoff_prior(players, current, replacement, scale)
+                roster_strength.playoff_prior(players, current, replacement, scale,
+                                              streams=who.get(tid), wire=wire)
                 * cal * b, 3),
             "injuries": notable_injuries(players, scale),
             "lineup_now": [
@@ -270,6 +294,7 @@ def build(season: int) -> dict:
             "unpriced": len(unpriced),
             "projection_source": config.PROJECTION_SOURCE,
             "fanduel": fd,
+            "streaming": {"teams": sum(1 for v in who.values() if v), "wire": wire_note},
             "matchup_source": "sleeper" if shape.get("matched") else "none (flat rate)",
             "matchup_coverage": shape.get("coverage", 0.0),
             "matchup_error": shape.get("error"),
