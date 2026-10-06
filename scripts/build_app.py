@@ -163,15 +163,19 @@ section{margin-bottom:12px;}
 .agree .gl{stroke:var(--grid);stroke-width:.5;}
 .agree .ax{fill:var(--text-muted);font-size:7px;}
 .agree .axl{fill:var(--text-secondary);font-size:7.5px;}
-.agree .halo{stroke:var(--surface-1);stroke-width:2;}
+/* A ring, not a disc. Filling the circle with the diverging colour put every
+   emoji in a coloured puddle that fought its own palette -- the emoji are already
+   saturated, so the mark behind one has to get out of the way. Surface fill keeps
+   the gridlines from running through the glyph; the colour lives in the stroke. */
+.agree .halo{fill:var(--surface-1);stroke-width:1.5;}
 .agree .em{font-size:11px;text-anchor:middle;dominant-baseline:central;}
 .agree .hit{fill:transparent;cursor:pointer;}
-.agree .hit:hover + .halo, .agree g:hover .halo{stroke:var(--text-primary);}
-.agree .me{stroke:var(--text-primary);stroke-width:1.5;fill:none;}
+.agree g:hover .halo{stroke:var(--text-primary);stroke-width:2;}
+.agree .me{stroke:var(--text-primary);stroke-width:1;fill:none;opacity:.55;}
 .agree-key{display:flex;gap:14px;flex-wrap:wrap;justify-content:center;
   font-size:var(--fs-tiny);color:var(--text-secondary);padding:6px 0 2px;}
-.agree-key .sw{display:inline-block;width:8px;height:8px;border-radius:50%;
-  margin-right:4px;vertical-align:-1px;}
+.agree-key .sw{display:inline-block;width:9px;height:9px;border-radius:50%;
+  border:1.5px solid;margin-right:4px;vertical-align:-1px;}
 .agree-tbl{font-size:var(--fs-small);color:var(--text-secondary);}
 .agree-tbl summary{cursor:pointer;color:var(--text-muted);
   font-size:var(--fs-tiny);padding:2px 0;}
@@ -329,9 +333,9 @@ BODY = """
   <header>Eye vs model<span class="sub" id="agreesub"></span></header>
   <div id="agree"></div>
   <div class="agree-key">
-    <span><i class="sw" style="background:var(--series-3)"></i>model rates higher</span>
-    <span><i class="sw" style="background:var(--grid-strong)"></i>same call &plusmn;1</span>
-    <span><i class="sw" style="background:var(--amber-dim)"></i>Jack rates higher</span>
+    <span><i class="sw" style="border-color:var(--series-3)"></i>model rates higher</span>
+    <span><i class="sw" style="border-color:var(--grid-strong)"></i>same call &plusmn;1</span>
+    <span><i class="sw" style="border-color:var(--amber-dim)"></i>Jack rates higher</span>
   </div>
   <details class="agree-tbl"><summary>table</summary><div id="agreetbl"></div></details>
  </section>
@@ -1111,7 +1115,7 @@ function agreeChart(d){
     var me = r.owner.toLowerCase().indexOf("parrott") >= 0
       ? '<circle class="me" cx="' + x + '" cy="' + y + '" r="10"/>' : "";
     return '<g><title>' + esc(tip) + '</title>' + me +
-           '<circle class="halo" cx="' + x + '" cy="' + y + '" r="7.5" fill="' +
+           '<circle class="halo" cx="' + x + '" cy="' + y + '" r="8" stroke="' +
            fill + '"/><text class="em" x="' + x + '" y="' + y + '">' +
            r.emoji + '</text></g>';
   }).join("");
