@@ -158,6 +158,28 @@ section{margin-bottom:12px;}
 .crows th.pl{text-align:right;padding-right:5px;}
 .crows tr:nth-child(even) td{background:color-mix(in srgb,var(--text-primary) 4%,transparent);}
 .crows .mv{font-size:var(--fs-tiny);}
+.agree{width:100%;height:auto;display:block;}
+.agree .ref{stroke:var(--grid);stroke-width:1;stroke-dasharray:3 3;}
+.agree .gl{stroke:var(--grid);stroke-width:.5;}
+.agree .ax{fill:var(--text-muted);font-size:7px;}
+.agree .axl{fill:var(--text-secondary);font-size:7.5px;}
+.agree .halo{stroke:var(--surface-1);stroke-width:2;}
+.agree .em{font-size:11px;text-anchor:middle;dominant-baseline:central;}
+.agree .hit{fill:transparent;cursor:pointer;}
+.agree .hit:hover + .halo, .agree g:hover .halo{stroke:var(--text-primary);}
+.agree .me{stroke:var(--text-primary);stroke-width:1.5;fill:none;}
+.agree-key{display:flex;gap:14px;flex-wrap:wrap;justify-content:center;
+  font-size:var(--fs-tiny);color:var(--text-secondary);padding:6px 0 2px;}
+.agree-key .sw{display:inline-block;width:8px;height:8px;border-radius:50%;
+  margin-right:4px;vertical-align:-1px;}
+.agree-tbl{font-size:var(--fs-small);color:var(--text-secondary);}
+.agree-tbl summary{cursor:pointer;color:var(--text-muted);
+  font-size:var(--fs-tiny);padding:2px 0;}
+.agree-tbl table{width:100%;border-collapse:collapse;margin-top:4px;}
+.agree-tbl td,.agree-tbl th{padding:2px 4px;text-align:right;
+  font-variant-numeric:tabular-nums;}
+.agree-tbl th{color:var(--text-muted);font-weight:400;font-size:var(--fs-tiny);}
+.agree-tbl td:first-child,.agree-tbl th:first-child{text-align:left;}
 .gradegrid{table-layout:fixed;width:100%;}
 .gradegrid th,.gradegrid td{padding:5px 2px;text-align:center;font-size:var(--fs-tiny);}
 .gradegrid th.rk,.gradegrid td.rk{width:1.6em;color:var(--text-muted);}
@@ -301,6 +323,17 @@ BODY = """
  <section class="pt-panel" id="crowspanel" hidden>
   <header>Commissioner&rsquo;s rows<span class="sub">Jack&rsquo;s own rankings, 1st to 12th</span></header>
   <div id="crows"></div>
+ </section>
+
+ <section class="pt-panel" id="agreepanel" hidden>
+  <header>Eye vs model<span class="sub" id="agreesub"></span></header>
+  <div id="agree"></div>
+  <div class="agree-key">
+    <span><i class="sw" style="background:var(--series-3)"></i>model rates higher</span>
+    <span><i class="sw" style="background:var(--grid-strong)"></i>same call &plusmn;1</span>
+    <span><i class="sw" style="background:var(--amber-dim)"></i>Jack rates higher</span>
+  </div>
+  <details class="agree-tbl"><summary>table</summary><div id="agreetbl"></div></details>
  </section>
 
  <div class="ticker" id="ticker" hidden>
@@ -668,6 +701,7 @@ function paint(){
   var top = shame[0].p_shame || 1;
   el("gradegrid").innerHTML = gradeGrid(params.teams);
   renderCommishRows();
+  renderAgree(result);
   el("shame").innerHTML = shame.map(function(t){
     return '<div class="bar"><span class="lab">' + esc(t.abbrev) + '</span>' +
       '<span class="track"><span class="fill" style="width:' + (100*t.p_shame/top).toFixed(1) + '%"></span></span>' +
@@ -978,6 +1012,134 @@ function commishRows(c){
   var w = cols.length >= 8 ? "100%" : (2.4 + cols.length * 3.2).toFixed(1) + "em";
   return '<table class="crows" style="width:' + w + '"><thead>' + head +
          '</thead><tbody>' + rows + '</tbody></table>';
+}
+
+/* ---- eye vs model --------------------------------------------------------
+   Jack ranks the league by eye; the model ranks it by 20,000 simulated seasons.
+   Plotting one against the other asks the only interesting question: where do
+   they DISAGREE, and is the disagreement about us?
+
+   Both axes run 12th..1st so that 1st-1st is the top right and the worst team
+   sits bottom left -- the direction people expect "good" to be. A team on the
+   dashed diagonal is one both methods see the same way; distance from it is the
+   whole story, so the diagonal is drawn and nothing else competes with it.
+
+   The emoji IS the mark. That is not a gimmick: it is the league's own name for
+   each owner (see the chain), so the chart needs no legend of twelve colours and
+   nobody has to decode a swatch. Colour is left to carry one thing only -- the
+   DIRECTION of disagreement -- which is a polarity, so it gets a diverging pair.
+   Blue and amber rather than the obvious green and red: red/green sits at CVD
+   deltaE 4 against this surface, which is invisible to a deuteranope, while
+   blue/amber measures 27. */
+var AGREE_BAND = 1;                              /* +/-1 place reads as agreement */
+
+function agreeRows(result, c){
+  var cols = (c && c.columns) || [], owners = (c && c.owners) || {};
+  if(!cols.length || !result || !result.teams) return null;
+  var last = cols[cols.length - 1], order = last.order || [];
+  if(order.length < 2) return null;
+
+  /* our side: the live EV ranking, the same sort the money table uses */
+  var ours = result.teams.slice().sort(function(a, b){ return b.ev_usd - a.ev_usd; });
+  var rank = {}, ev = {};
+  ours.forEach(function(t, i){ rank[t.owner] = i + 1; ev[t.owner] = t.ev_usd; });
+
+  /* his side, matched by owner name -- the emoji table carries surnames, the
+     league carries full names, so match on substring the way everything else
+     in this project does */
+  var rows = [];
+  order.forEach(function(e, i){
+    var who = owners[e];
+    if(!who) return;
+    var hit = null;
+    for(var k in rank){
+      if(k.toLowerCase().indexOf(who.toLowerCase()) >= 0){ hit = k; break; }
+    }
+    if(hit === null) return;
+    rows.push({emoji: e, who: who, owner: hit, jack: i + 1,
+               mine: rank[hit], ev: ev[hit], gap: rank[hit] - (i + 1)});
+  });
+  /* An emoji whose name does not match any ESPN owner is DROPPED, and a silently
+     short chart is worse than a loud one: the first build of this quietly plotted
+     11 of 12 because the rankings file said "Raizin" where the league says "Dirty
+     Gypsy". Unmatched names are counted and surfaced in the subtitle. */
+  var missed = order.length - rows.length;
+  return rows.length >= 2
+    ? {rows: rows, label: last.label || "", n: order.length, missed: missed}
+    : null;
+}
+
+function agreeChart(d){
+  var N = d.n, W = 240, H = 196, L = 32, T = 13, R = 14, B = 28, PAD = 9;
+  var pw = W - L - R, ph = H - T - B;
+  /* Reversed: place 1 lands at the far/top end of each axis, so 1st-1st is the
+     top right. PAD insets the scale by one mark radius -- without it the 12th
+     place sits exactly on the frame and the last emoji hangs outside the plot,
+     on top of its own axis label. */
+  function X(p){ return L + PAD + (pw - 2*PAD) * (N - p) / (N - 1); }
+  function Y(p){ return T + PAD + (ph - 2*PAD) * (p - 1) / (N - 1); }
+
+  var g = "", i;
+  for(i = 1; i <= N; i++){
+    g += '<line class="gl" x1="' + X(i).toFixed(1) + '" y1="' + T +
+         '" x2="' + X(i).toFixed(1) + '" y2="' + (T + ph) + '"/>' +
+         '<line class="gl" x1="' + L + '" y1="' + Y(i).toFixed(1) +
+         '" x2="' + (L + pw) + '" y2="' + Y(i).toFixed(1) + '"/>';
+  }
+  var ref = '<line class="ref" x1="' + X(N) + '" y1="' + Y(N) +
+            '" x2="' + X(1) + '" y2="' + Y(1) + '"/>';
+
+  var ticks = "";
+  [1, 4, 8, N].forEach(function(p){
+    ticks += '<text class="ax" x="' + X(p).toFixed(1) + '" y="' + (T + ph + 10) +
+             '" text-anchor="middle">' + p + '</text>' +
+             '<text class="ax" x="' + (L - 5) + '" y="' + (Y(p) + 2.5).toFixed(1) +
+             '" text-anchor="end">' + p + '</text>';
+  });
+  var axl = '<text class="axl" x="' + (L + pw / 2) + '" y="' + (H - 3) +
+            '" text-anchor="middle">Jack&rsquo;s rank &rarr;</text>' +
+            '<text class="axl" transform="translate(7,' + (T + ph / 2) +
+            ') rotate(-90)" text-anchor="middle">our EV rank &rarr;</text>';
+
+  var pts = d.rows.map(function(r){
+    var fill = Math.abs(r.gap) <= AGREE_BAND ? "var(--grid-strong)"
+             : (r.gap < 0 ? "var(--series-3)" : "var(--amber-dim)");
+    var x = X(r.jack).toFixed(1), y = Y(r.mine).toFixed(1);
+    var money = (r.ev >= 0 ? "+$" : "-$") + Math.abs(Math.round(r.ev));
+    var tip = r.who + " — Jack " + r.jack + ", model " + r.mine +
+              " (" + money + ")";
+    var me = r.owner.toLowerCase().indexOf("parrott") >= 0
+      ? '<circle class="me" cx="' + x + '" cy="' + y + '" r="10"/>' : "";
+    return '<g><title>' + esc(tip) + '</title>' + me +
+           '<circle class="halo" cx="' + x + '" cy="' + y + '" r="7.5" fill="' +
+           fill + '"/><text class="em" x="' + x + '" y="' + y + '">' +
+           r.emoji + '</text></g>';
+  }).join("");
+
+  return '<svg class="agree" viewBox="0 0 ' + W + ' ' + H +
+         '" role="img">' + g + ref + ticks + axl + pts + '</svg>';
+}
+
+function agreeTable(d){
+  var r = d.rows.slice().sort(function(a, b){ return a.mine - b.mine; });
+  return '<table><thead><tr><th>team</th><th>Jack</th><th>model</th>' +
+    '<th>gap</th></tr></thead><tbody>' + r.map(function(t){
+      return '<tr><td>' + t.emoji + ' ' + esc(t.who) + '</td><td>' + t.jack +
+             '</td><td>' + t.mine + '</td><td>' + (t.gap > 0 ? "+" : "") + t.gap +
+             '</td></tr>';
+    }).join("") + '</tbody></table>';
+}
+
+function renderAgree(result){
+  var d = agreeRows(result, COMMISH);
+  if(!d) return;
+  var apart = d.rows.filter(function(r){ return Math.abs(r.gap) > AGREE_BAND; }).length;
+  el("agree").innerHTML = agreeChart(d);
+  el("agreetbl").innerHTML = agreeTable(d);
+  el("agreesub").textContent = d.label + " — " + apart + " of " + d.rows.length +
+    " more than " + AGREE_BAND + " place apart" +
+    (d.missed ? " · " + d.missed + " unmatched" : "");
+  el("agreepanel").hidden = false;
 }
 
 function renderCommishRows(){

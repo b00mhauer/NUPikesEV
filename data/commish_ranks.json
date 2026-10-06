@@ -1,8 +1,8 @@
 {
- "_note": "The commissioner's weekly power rankings, posted as rows of emoji. Typed in by hand -- nothing derives this, so each new week is one entry appended to `columns`, newest last. `order` runs 1st place to 12th. Emoji must match a key in `owners`; anything that does not is drawn but left unlabelled.",
+ "_note": "The commissioner's weekly power rankings, posted as rows of emoji. Typed in by hand -- nothing derives this, so each new week is one entry appended to `columns`, newest last. `order` runs 1st place to 12th. Emoji must match a key in `owners`; anything that does not is drawn but left unlabelled. Each name must appear INSIDE the ESPN owner name (case-insensitive) or that team is left out of the eye-vs-model chart -- which is why this says Gypsy and not Raizin.",
  "owners": {
   "🚀": "Rizzo",
-  "🧙🏿": "Raizin",
+  "🧙🏿": "Gypsy",
   "🦠": "Regan",
   "🐳": "McQuiston",
   "🤑": "Dabrowski",
@@ -79,6 +79,24 @@
     "🥘",
     "🏔️",
     "😷",
+    "🤼",
+    "🐧"
+   ]
+  },
+  {
+   "label": "Wk 4",
+   "posted": "2026-09-29",
+   "order": [
+    "🚀",
+    "🧙🏿",
+    "🥘",
+    "🤨",
+    "🐳",
+    "😷",
+    "🏔️",
+    "🤑",
+    "🐉",
+    "🦠",
     "🤼",
     "🐧"
    ]
