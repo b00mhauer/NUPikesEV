@@ -163,19 +163,9 @@ section{margin-bottom:12px;}
 .agree .gl{stroke:var(--grid);stroke-width:.5;}
 .agree .ax{fill:var(--text-muted);font-size:7px;}
 .agree .axl{fill:var(--text-secondary);font-size:7.5px;}
-/* A ring, not a disc. Filling the circle with the diverging colour put every
-   emoji in a coloured puddle that fought its own palette -- the emoji are already
-   saturated, so the mark behind one has to get out of the way. Surface fill keeps
-   the gridlines from running through the glyph; the colour lives in the stroke. */
-.agree .halo{fill:var(--surface-1);stroke-width:1.5;}
-.agree .em{font-size:11px;text-anchor:middle;dominant-baseline:central;}
-.agree .hit{fill:transparent;cursor:pointer;}
-.agree g:hover .halo{stroke:var(--text-primary);stroke-width:2;}
-.agree .me{stroke:var(--text-primary);stroke-width:1;fill:none;opacity:.55;}
-.agree-key{display:flex;gap:14px;flex-wrap:wrap;justify-content:center;
-  font-size:var(--fs-tiny);color:var(--text-secondary);padding:6px 0 2px;}
-.agree-key .sw{display:inline-block;width:9px;height:9px;border-radius:50%;
-  border:1.5px solid;margin-right:4px;vertical-align:-1px;}
+.agree .em{font-size:12px;text-anchor:middle;dominant-baseline:central;
+  cursor:default;}
+.agree g:hover .em{font-size:14px;}
 .agree-tbl{font-size:var(--fs-small);color:var(--text-secondary);}
 .agree-tbl summary{cursor:pointer;color:var(--text-muted);
   font-size:var(--fs-tiny);padding:2px 0;}
@@ -330,13 +320,8 @@ BODY = """
  </section>
 
  <section class="pt-panel" id="agreepanel" hidden>
-  <header>Eye vs model<span class="sub" id="agreesub"></span></header>
+  <header>Jack vs Olly<span class="sub" id="agreesub"></span></header>
   <div id="agree"></div>
-  <div class="agree-key">
-    <span><i class="sw" style="border-color:var(--series-3)"></i>model rates higher</span>
-    <span><i class="sw" style="border-color:var(--grid-strong)"></i>same call &plusmn;1</span>
-    <span><i class="sw" style="border-color:var(--amber-dim)"></i>Jack rates higher</span>
-  </div>
   <details class="agree-tbl"><summary>table</summary><div id="agreetbl"></div></details>
  </section>
 
@@ -1019,22 +1004,22 @@ function commishRows(c){
 }
 
 /* ---- eye vs model --------------------------------------------------------
-   Jack ranks the league by eye; the model ranks it by 20,000 simulated seasons.
-   Plotting one against the other asks the only interesting question: where do
-   they DISAGREE, and is the disagreement about us?
+   Jack ranks the league by eye; Olly -- the public EV model -- ranks it by 20,000
+   simulated seasons. Plotting one against the other asks the only interesting
+   question: where do they DISAGREE, and is the disagreement about us?
 
    Both axes run 12th..1st so that 1st-1st is the top right and the worst team
    sits bottom left -- the direction people expect "good" to be. A team on the
    dashed diagonal is one both methods see the same way; distance from it is the
    whole story, so the diagonal is drawn and nothing else competes with it.
 
-   The emoji IS the mark. That is not a gimmick: it is the league's own name for
-   each owner (see the chain), so the chart needs no legend of twelve colours and
-   nobody has to decode a swatch. Colour is left to carry one thing only -- the
-   DIRECTION of disagreement -- which is a polarity, so it gets a diverging pair.
-   Blue and amber rather than the obvious green and red: red/green sits at CVD
-   deltaE 4 against this surface, which is invisible to a deuteranope, while
-   blue/amber measures 27. */
+   The emoji IS the mark, and it is the ONLY mark. It is the league's own name for
+   each owner (see the chain), so there is no legend to read and no swatch to
+   decode. An earlier cut ringed each one in a diverging colour for the direction
+   of disagreement; that encoding was redundant the moment the diagonal was drawn,
+   because above the line already MEANS the model rates him higher. Two channels
+   saying one thing is one channel too many, and the rings fought twelve already
+   saturated glyphs for attention. */
 var AGREE_BAND = 1;                              /* +/-1 place reads as agreement */
 
 function agreeRows(result, c){
@@ -1103,21 +1088,15 @@ function agreeChart(d){
   var axl = '<text class="axl" x="' + (L + pw / 2) + '" y="' + (H - 3) +
             '" text-anchor="middle">Jack&rsquo;s rank &rarr;</text>' +
             '<text class="axl" transform="translate(7,' + (T + ph / 2) +
-            ') rotate(-90)" text-anchor="middle">our EV rank &rarr;</text>';
+            ') rotate(-90)" text-anchor="middle">Olly&rsquo;s rankings &rarr;</text>';
 
   var pts = d.rows.map(function(r){
-    var fill = Math.abs(r.gap) <= AGREE_BAND ? "var(--grid-strong)"
-             : (r.gap < 0 ? "var(--series-3)" : "var(--amber-dim)");
     var x = X(r.jack).toFixed(1), y = Y(r.mine).toFixed(1);
     var money = (r.ev >= 0 ? "+$" : "-$") + Math.abs(Math.round(r.ev));
-    var tip = r.who + " — Jack " + r.jack + ", model " + r.mine +
+    var tip = r.who + " — Jack " + r.jack + ", Olly " + r.mine +
               " (" + money + ")";
-    var me = r.owner.toLowerCase().indexOf("parrott") >= 0
-      ? '<circle class="me" cx="' + x + '" cy="' + y + '" r="10"/>' : "";
-    return '<g><title>' + esc(tip) + '</title>' + me +
-           '<circle class="halo" cx="' + x + '" cy="' + y + '" r="8" stroke="' +
-           fill + '"/><text class="em" x="' + x + '" y="' + y + '">' +
-           r.emoji + '</text></g>';
+    return '<g><title>' + esc(tip) + '</title>' +
+           '<text class="em" x="' + x + '" y="' + y + '">' + r.emoji + '</text></g>';
   }).join("");
 
   return '<svg class="agree" viewBox="0 0 ' + W + ' ' + H +
@@ -1126,7 +1105,7 @@ function agreeChart(d){
 
 function agreeTable(d){
   var r = d.rows.slice().sort(function(a, b){ return a.mine - b.mine; });
-  return '<table><thead><tr><th>team</th><th>Jack</th><th>model</th>' +
+  return '<table><thead><tr><th>team</th><th>Jack</th><th>Olly</th>' +
     '<th>gap</th></tr></thead><tbody>' + r.map(function(t){
       return '<tr><td>' + t.emoji + ' ' + esc(t.who) + '</td><td>' + t.jack +
              '</td><td>' + t.mine + '</td><td>' + (t.gap > 0 ? "+" : "") + t.gap +
