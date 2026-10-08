@@ -34,6 +34,14 @@ on:
       - "scripts/**"
       - "web/**"
       - ".github/workflows/publish.yml"
+      # The one data file a HUMAN edits. Without it, adding the week's
+      # commissioner rankings triggered nothing at all and the push sat
+      # unpublished until the next 3-hourly cron happened along -- a silent
+      # delay of up to three hours on the one change someone makes by hand and
+      # then goes looking for. Not data/** on purpose: the tape snapshots this
+      # workflow commits back live there, and while they carry [skip ci] there
+      # is no reason to widen the trigger to cover our own writes.
+      - "data/commish_ranks.json"
 
 permissions:
   contents: write      # to commit the encrypted tape
