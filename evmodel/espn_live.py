@@ -372,6 +372,31 @@ def played_fraction(kickoff_ms: int | None, now_ms: int) -> float:
     return min(1.0, (now_ms - kickoff_ms) / GAME_MS)
 
 
+def games_in_play(raw: dict, now_ms: int | None = None) -> bool:
+    """Is an NFL game actually on the field right now?
+
+    This is NOT the same question as whether a week reads "live", and conflating
+    the two cost 36 minutes of runner time on every publish, around the clock,
+    for most of the season. A week goes "live" the moment points appear and stays
+    there until ESPN sets `winner` -- but ESPN only does that when it CLOSES the
+    matchup period, which trails the last whistle by days. Week 5's games
+    finished on the Monday; the following Tuesday it still read live, with
+    winner UNDECIDED, totalPoints 0.0 and the real scores sitting in
+    totalPointsLive. The publish workflow asked "is a week live?" to decide
+    whether to keep re-pricing every five minutes, so it answered yes forever.
+
+    The kickoff clock is the honest signal, and the model already keeps one: a
+    game is in play from its kickoff until GAME_MS after it, the same three-hour
+    window played_fraction uses to bleed off variance.
+    """
+    now_ms = int(time.time() * 1000) if now_ms is None else now_ms
+    week = current_week(raw)
+    for (_team, wk), kick in kickoffs(raw["proteams"]).items():
+        if wk == week and kick <= now_ms < kick + GAME_MS:
+            return True
+    return False
+
+
 def live_week(matchup_raw: dict, rosters_by_team: dict[int, list[dict]],
               kickoff_map: dict[tuple[int, int], int], week: int,
               now_ms: int) -> dict[int, dict]:

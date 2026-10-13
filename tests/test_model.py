@@ -314,3 +314,49 @@ def test_exported_params_are_valid():
     assert sum(1 for t in r["teams"] if t["is_us"]) <= 1
     for t in p["teams"]:
         assert all(60 < v < 160 for v in t["prior_weekly"].values()), t["abbrev"]
+
+
+def test_a_finished_week_is_not_a_week_in_play():
+    """The 36-minute publish. A week goes "live" when points appear and stays
+    there until ESPN sets `winner`, which it only does when it CLOSES the matchup
+    period -- days after the last whistle. Week 5's games ended on the Monday and
+    the following Tuesday ESPN still reported winner UNDECIDED, totalPoints 0.0,
+    and the real scores parked in totalPointsLive. The workflow read that state as
+    "games are on" and swept 8 times, 5 minutes apart, on every run around the
+    clock. games_in_play asks the kickoff clock instead."""
+    import time
+    from evmodel import espn_live
+
+    now = int(time.time() * 1000)
+    hour = 60 * 60 * 1000
+    raw = {
+        "schedule": {"status": {"currentMatchupPeriod": 5}},
+        "proteams": {"settings": {"proTeams": [
+            {"id": 1, "proGamesByScoringPeriod": {
+                "5": [{"date": now - 4 * hour}]}},     # kicked off 4h ago: over
+        ]}},
+    }
+    assert espn_live.games_in_play(raw, now) is False
+
+    # same shape, one game that started an hour ago -> genuinely in play
+    raw["proteams"]["settings"]["proTeams"].append(
+        {"id": 2, "proGamesByScoringPeriod": {"5": [{"date": now - hour}]}})
+    assert espn_live.games_in_play(raw, now) is True
+
+    # a game that has not kicked off yet is not in play either
+    future = {
+        "schedule": {"status": {"currentMatchupPeriod": 5}},
+        "proteams": {"settings": {"proTeams": [
+            {"id": 1, "proGamesByScoringPeriod": {"5": [{"date": now + hour}]}},
+        ]}},
+    }
+    assert espn_live.games_in_play(future, now) is False
+
+    # and a game in ANOTHER week does not make this week live
+    other = {
+        "schedule": {"status": {"currentMatchupPeriod": 5}},
+        "proteams": {"settings": {"proTeams": [
+            {"id": 1, "proGamesByScoringPeriod": {"6": [{"date": now - hour}]}},
+        ]}},
+    }
+    assert espn_live.games_in_play(other, now) is False
