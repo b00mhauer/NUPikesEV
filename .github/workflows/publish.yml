@@ -115,7 +115,15 @@ jobs:
           # closes the matchup period -- days after the last whistle -- so every
           # run swept 8 times whatever the hour and took 36 minutes around the
           # clock. in_play.py asks the kickoff clock instead.
-          if python scripts/in_play.py; then SWEEPS=8; else SWEEPS=1; fi
+          # 3, not 8. The game-window cron fires every 15 minutes, and Pages
+          # deploys only when the whole job ends -- so an 8-sweep run (7x300s =
+          # 35 minutes) outlives the next two crons, which the concurrency group
+          # then drops as stale pending runs. Last Sunday that left NINE runs
+          # across two days instead of four an hour, and the live site going
+          # 36 minutes between updates during the games it most needs to track.
+          # 3 sweeps is 10 minutes: the tape still samples every 5, and the run
+          # is finished and deployed before the next cron is due.
+          if python scripts/in_play.py; then SWEEPS=3; else SWEEPS=1; fi
           for i in $(seq 1 $SWEEPS); do
             # A sweep is allowed to fail. ESPN times out, a rebase loses a race,
             # and none of that should cost the site its deploy -- the step failing
