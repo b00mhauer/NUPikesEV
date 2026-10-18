@@ -145,7 +145,19 @@ jobs:
               echo "sweep $i: nothing moved"
             else
               git commit -m "tape: snapshot $(date -u +'%Y-%m-%d %H:%M UTC') [skip ci]"
-              git pull --rebase --autostash origin main || true
+              # `|| true` on its own is a trap: a rebase that hits a conflict
+              # STOPS mid-flight and leaves the working tree holding conflict
+              # markers, and the || swallows the error so the loop sails on.
+              # Build the page then reads data/ev_history.json, finds "<<<<<<<"
+              # where JSON should be, and dies -- which is exactly how a run
+              # that priced the season perfectly still skipped its deploy. On
+              # failure, abort so the tree goes back to something parseable and
+              # let the next sweep (or the next run) carry the snapshot.
+              git pull --rebase --autostash origin main || {
+                echo "sweep $i: rebase failed; aborting it and carrying on"
+                git rebase --abort || true
+                git checkout -- data/ || true
+              }
               git push || echo "sweep $i: push lost a race; the next sweep carries it"
             fi
             # A plain `[ ... ] && sleep` here is a trap: on the last pass the
@@ -161,6 +173,14 @@ jobs:
 
       - name: Build the page
         run: |
+          # The tape is the one file here that cannot be rebuilt from ESPN, so
+          # never build a page against a damaged one -- restore the committed
+          # copy and let the next run re-record rather than publishing a chart
+          # with a hole in it.
+          python -c "import json;json.load(open('data/ev_history.json'))" || {
+            echo "::warning::tape unreadable in the worktree; restoring from HEAD"
+            git checkout HEAD -- data/ev_history.json
+          }
           python scripts/build_app.py --out _site/index.html
           cp data/params.json _site/ev_season.json
           cp data/ev_history.json _site/ev_history.json
