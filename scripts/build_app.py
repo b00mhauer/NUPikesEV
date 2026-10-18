@@ -158,6 +158,20 @@ section{margin-bottom:12px;}
 .crows th.pl{text-align:right;padding-right:5px;}
 .crows tr:nth-child(even) td{background:color-mix(in srgb,var(--text-primary) 4%,transparent);}
 .crows .mv{font-size:var(--fs-tiny);}
+.bench td.rk{color:var(--text-muted);width:1.6em;text-align:right;}
+.bench td.tm{font-weight:600;}
+.bench tr.us td{background:color-mix(in srgb,var(--amber) 10%,transparent);}
+.bench .sit{color:var(--warning);font-variant-numeric:tabular-nums;}
+.bench .sit.none{color:var(--text-muted);}
+.bench{table-layout:fixed;width:100%;}
+.bench th.bw{text-align:left;}
+.bench col.c-rk{width:2.1em;} .bench col.c-tm{width:4.1em;}
+.bench col.c-dp{width:4.1em;} .bench col.c-st{width:2.6em;}
+.bench .who{color:var(--text-secondary);font-size:var(--fs-small);
+  display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.bench .who b{color:var(--text-primary);font-weight:600;}
+.bench-note{color:var(--text-muted);font-size:var(--fs-tiny);padding:6px 2px 0;
+  line-height:1.5;}
 .agree{width:100%;height:auto;display:block;}
 .agree .ref{stroke:var(--grid);stroke-width:1;stroke-dasharray:3 3;}
 .agree .gl{stroke:var(--grid);stroke-width:.5;}
@@ -312,6 +326,18 @@ BODY = """
  <section class="pt-panel">
   <header>Lineup grades<span class="sub">the full-strength nine, graded by position</span></header>
   <div id="gradegrid"></div>
+ </section>
+
+ <section class="pt-panel" id="benchpanel" hidden>
+  <header>Benchwarmer rankings<span class="sub" id="benchsub"></span></header>
+  <table class="pt-table bench">
+   <colgroup><col class="c-rk"><col class="c-tm"><col class="c-dp"><col class="c-st"><col></colgroup>
+   <thead><tr>
+    <th class="rk"></th><th class="tm">Team</th>
+    <th class="pt-num">Depth</th><th class="pt-num">Sit</th>
+    <th class="bw">Best</th>
+  </tr></thead><tbody id="bench"></tbody></table>
+  <div class="bench-note" id="benchnote"></div>
  </section>
 
  <section class="pt-panel" id="crowspanel" hidden>
@@ -689,6 +715,7 @@ function paint(){
   var shame = result.teams.slice().sort(function(a,b){ return b.p_shame - a.p_shame; }).slice(0, 6);
   var top = shame[0].p_shame || 1;
   el("gradegrid").innerHTML = gradeGrid(params.teams);
+  renderBench(params);
   renderCommishRows();
   renderAgree(result);
   el("shame").innerHTML = shame.map(function(t){
@@ -1123,6 +1150,65 @@ function renderAgree(result){
     " more than " + AGREE_BAND + " place apart" +
     (d.missed ? " · " + d.missed + " unmatched" : "");
   el("agreepanel").hidden = false;
+}
+
+/* ---- benchwarmer rankings -------------------------------------------------
+   How good is each team's bench, measured the only way a bench can honestly be
+   measured: what it is worth OVER THE WIRE. A benchwarmer you could replace
+   with a free agent this afternoon is not depth, however famous he is, and
+   counting raw bench points would just reward hoarding.
+
+   The catch, and the reason the Sit column exists. This ranks whoever is
+   ACTUALLY benched, and ESPN carries last week's lineup forward until a manager
+   sets the new one -- so a bench can hold Christian McCaffrey and Justin
+   Jefferson at the same time. That is not a deep roster, it is a man who has
+   not opened the app. Sit counts the benched players who out-project somebody
+   their own manager is starting, so the table says which kind of bench you are
+   looking at instead of quietly ranking negligence as strength. */
+function benchRows(params){
+  var teams = (params && params.teams) || [];
+  var rows = teams.map(function(t){
+    var b = t.bench || [];
+    var depth = 0, sit = 0;
+    b.forEach(function(x){ depth += x.over || 0; if(x.sit) sit++; });
+    return {t: t, depth: depth, sit: sit, best: b.length ? b[0] : null, n: b.length};
+  }).filter(function(r){ return r.n; });
+  rows.sort(function(a, b){ return b.depth - a.depth; });
+  return rows;
+}
+
+function renderBench(params){
+  var rows = benchRows(params);
+  if(!rows.length) return;                       /* no bench line -> stay hidden */
+  el("bench").innerHTML = rows.map(function(r, i){
+    var best = r.best
+      /* Surname only -- the full name truncated to "Rhamondr..." in every row
+         at phone width, which is worse than no first name at all. */
+      ? '<span class="who" title="' + esc(r.best.name) + '"><b>' +
+        esc(shortName(r.best.name)) + '</b> ' + esc(r.best.pos) +
+        ' +' + r.best.over.toFixed(1) + '</span>'
+      : '<span class="who">&mdash;</span>';
+    return '<tr' + (r.t.is_us ? ' class="us"' : '') +
+      '><td class="rk">' + (i + 1) + '</td>' +
+      '<td class="tm">' + esc(r.t.abbrev || shortName(r.t.owner)) + '</td>' +
+      '<td class="pt-num">' + r.depth.toFixed(1) + '</td>' +
+      '<td class="pt-num sit' + (r.sit ? '' : ' none') + '">' + r.sit + '</td>' +
+      '<td>' + best + '</td></tr>';
+  }).join("");
+
+  var lv = ((params.model || {}).bench_line || {}).levels || {};
+  var bar = Object.keys(lv).sort().map(function(k){
+    return k + " " + lv[k].toFixed(1);
+  }).join(" &middot; ");
+  var sitting = rows.reduce(function(a, r){ return a + r.sit; }, 0);
+  el("benchsub").textContent = "points a week over the wire";
+  el("benchnote").innerHTML =
+    "Depth is what a bench adds <b>over the best free agent at the same position</b> " +
+    "(this week: " + bar + ") &mdash; a player you could replace for nothing counts zero. " +
+    "<b>Sit</b> is benched players out-projecting someone their own manager is starting; " +
+    "there are " + sitting + " of them right now, so some of what looks like depth is a " +
+    "lineup nobody has set.";
+  el("benchpanel").hidden = false;
 }
 
 function renderCommishRows(){

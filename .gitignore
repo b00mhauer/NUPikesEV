@@ -8,3 +8,6 @@ __pycache__/
 .venv/
 .DS_Store
 data/wire_levels.json
+# Same deal: four requests, cached six hours, cheap to refetch on a fresh
+# runner. Unlike espn_weekly.json it does NOT need to ride back into the repo.
+data/bench_line.json

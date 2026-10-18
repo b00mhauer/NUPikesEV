@@ -47,8 +47,12 @@ from . import config
 ENV_VAR = "EV_STREAMS"
 RANK_VAR = "EV_WIRE_RANK"
 STREAMABLE = ("K", "DST")
+# The skill positions. Not streamable -- you do not churn a running back weekly --
+# but the wire line still answers the only honest question about a BENCH player:
+# could you replace him for nothing? See bench_line().
+BENCHABLE = ("QB", "RB", "WR", "TE")
 # ESPN lineup slot ids for the free-agent filter
-SLOT = {"K": 17, "DST": 16}
+SLOT = {"K": 17, "DST": 16, "QB": 0, "RB": 2, "WR": 4, "TE": 6}
 TTL_SECONDS = 6 * 3600
 POOL_LIMIT = 50
 
@@ -172,3 +176,52 @@ def wire_levels(path, season: int, weeks: list[int], now: float,
         {"season": season, "rank": rank, "fetched_at": now,
          "levels": {str(w): v for w, v in levels.items()}}, indent=1))
     return levels, f"refetched rank {rank}"
+
+
+def bench_line(path, season: int, week: int, now: float,
+               ttl: int = TTL_SECONDS) -> tuple[dict[str, float], str]:
+    """{"QB": x, "RB": y, ...} -- the best free agent at each skill position THIS
+    week, cached.
+
+    This is the bar a benchwarmer has to clear to be worth a roster spot, and it
+    is deliberately NOT roster_strength.replacement_levels(). That line is the
+    last STARTABLE player league-wide, ranked over everyone ROSTERED -- the right
+    baseline for drafting, and the wrong one here, because the twelfth-best
+    quarterback is on somebody's bench and you cannot have him. Measured on this
+    league the two differ by over two points a week at QB, which is the whole
+    margin a backup quarterback is supposed to earn.
+
+    One week, four requests, cached for the same six hours as the streaming line.
+    A failed fetch returns the cache, or {} -- and {} means the bench panel
+    simply does not draw, which is better than drawing it against a line that
+    means something else.
+    """
+    path = Path(path)
+    try:
+        doc = json.loads(path.read_text())
+        if doc.get("season") == season and doc.get("week") == week:
+            age = now - float(doc["fetched_at"])
+            if age < ttl:
+                return doc["levels"], f"cached {age / 3600:.1f}h old"
+    except (OSError, ValueError, KeyError, TypeError):
+        pass
+
+    levels: dict[str, float] = {}
+    try:
+        for pos in BENCHABLE:
+            v = _fetch_week(season, week, pos, 1)
+            if v is not None:
+                levels[pos] = round(v, 2)
+    except Exception as exc:                      # noqa: BLE001 - see docstring
+        try:
+            doc = json.loads(Path(path).read_text())
+            return doc["levels"], f"wire unreachable ({exc}); using cache"
+        except (OSError, ValueError, KeyError, TypeError):
+            return {}, f"wire unreachable ({exc}); no bench line"
+
+    if levels:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({"season": season, "week": week,
+                                    "fetched_at": now, "levels": levels}))
+    return levels, "refetched " + ", ".join(f"{k} {v:.1f}"
+                                            for k, v in sorted(levels.items()))

@@ -39,6 +39,27 @@ OUR_OWNER = os.environ.get("EV_OWNER", "")
 PLAYOFF_WEEK = 99          # the optimizer's "no byes left" sentinel
 
 
+FLEX_POS = ("RB", "WR")
+
+
+def outprojects_a_starter(players: list[dict], man: dict, week: int,
+                          scale: float, cal: float) -> bool:
+    """Is this benched player projecting above someone his manager is starting?
+
+    Only counts slots he could legally fill: his own position, plus the flex if
+    he is a back or a receiver. A quarterback out-projecting a starting tight end
+    proves nothing -- he cannot play there.
+    """
+    mine = roster_strength.player_week(man, week, scale) * cal
+    eligible = set(FLEX_POS) | {man["pos"]} if man["pos"] in FLEX_POS else {man["pos"]}
+    for q in players:
+        if not q["starting"] or q["pos"] not in eligible:
+            continue
+        if roster_strength.player_week(q, week, scale) * cal < mine:
+            return True
+    return False
+
+
 def notable_injuries(players: list[dict], scale: float) -> list[dict]:
     """Who is unavailable, and what his absence is worth per week — the line the
     app points at when a team's EV drops."""
@@ -202,6 +223,10 @@ def build(season: int) -> dict:
     # failed fetch degrades to the same thing rather than failing the build.
     roster_teams = espn_live.teams(raw)
     who = streaming.resolve(streaming.load(), roster_teams)
+    # The bar a benchwarmer has to clear: the best free agent at his position
+    # this week. Deliberately not `replacement` above -- see streaming.bench_line.
+    bench_line, bench_note = streaming.bench_line(
+        REPO / "data" / "bench_line.json", season, current, time.time())
     wire, wire_note = ({}, "nobody flagged")
     if any(who.values()):
         # FUTURE weeks only. A completed week's prior is compared against what
@@ -267,6 +292,32 @@ def build(season: int) -> dict:
                     players, PLAYOFF_WEEK, current, replacement,
                     ignore_bye=True, scale=scale)[1]
             ],
+            # Who is ACTUALLY sat on the bench right now -- ESPN's own lineup
+            # flag, not a re-derived optimum. A man is benched because his
+            # manager benched him, and that is the thing being ranked. IR does
+            # not count: a player who cannot be started is not bench depth, he
+            # is an absence. Kickers and defences do not count either -- nobody
+            # rosters a backup of either, so they would only add noise.
+            # Flagged, because the literal bench does not mean what it looks
+            # like. ESPN carries last week's lineup forward until a manager sets
+            # the new one, so a bench can hold Christian McCaffrey and Justin
+            # Jefferson at once -- that is not depth, it is a man who has not
+            # opened the app. `sit` marks a benched player who out-projects
+            # someone his manager is actually starting, which is the difference
+            # between a strong bench and a neglected one.
+            "bench": sorted(
+                (
+                    {"name": p["name"], "pos": p["pos"],
+                     "proj": round(roster_strength.player_week(p, current, scale) * b, 1),
+                     "over": round(max(0.0, roster_strength.player_week(p, current, scale) * b
+                                       - bench_line.get(p["pos"], 0.0)), 1),
+                     "sit": outprojects_a_starter(players, p, current, scale, b)}
+                    for p in players
+                    if not p["starting"] and not p["on_ir"]
+                    and p["pos"] in streaming.BENCHABLE
+                ),
+                key=lambda r: -r["over"],
+            ),
         })
 
     params = {
@@ -295,6 +346,7 @@ def build(season: int) -> dict:
             "projection_source": config.PROJECTION_SOURCE,
             "fanduel": fd,
             "streaming": {"teams": sum(1 for v in who.values() if v), "wire": wire_note},
+            "bench_line": {"levels": bench_line, "note": bench_note},
             "matchup_source": "sleeper" if shape.get("matched") else "none (flat rate)",
             "matchup_coverage": shape.get("coverage", 0.0),
             "matchup_error": shape.get("error"),

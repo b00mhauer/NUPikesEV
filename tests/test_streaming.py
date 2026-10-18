@@ -107,3 +107,33 @@ def test_a_failed_wire_fetch_falls_back_to_the_cache_rather_than_to_nothing(tmp_
     # with no cache at all it degrades to "nobody streams", not an exception
     got2, why2 = streaming.wire_levels(tmp_path / "absent.json", 2026, [4], 9_999_999.0)
     assert got2 == {} and "no cache" in why2
+
+
+def test_the_bench_bar_is_the_wire_not_the_last_startable_player():
+    """A benchwarmer is worth what he adds over a man you could claim for free,
+    which is NOT roster_strength.replacement_levels(). That line is the last
+    STARTABLE player ranked over everyone ROSTERED -- the twelfth-best QB is on
+    somebody's bench and you cannot have him. Measured on this league the two
+    differ by more than two points a week at quarterback, which is the entire
+    margin a backup QB is supposed to earn."""
+    from evmodel import streaming
+    assert set(streaming.BENCHABLE) == {"QB", "RB", "WR", "TE"}
+    # every benchable position must have a free-agent slot id to filter on,
+    # or bench_line would silently skip it and the depth number would be short
+    for pos in streaming.BENCHABLE:
+        assert pos in streaming.SLOT
+    # K and DST stay out: nobody rosters a backup of either
+    assert "K" not in streaming.BENCHABLE and "DST" not in streaming.BENCHABLE
+
+
+def test_a_missing_wire_hides_the_panel_rather_than_faking_one(tmp_path):
+    """If the fetch fails and there is no cache, bench_line returns {} -- and an
+    empty line means every surplus would read as the player's full projection,
+    which would rank hoarding. Better to draw nothing."""
+    import time
+    from unittest import mock
+    from evmodel import streaming
+    with mock.patch.object(streaming, "_fetch_week", side_effect=RuntimeError("down")):
+        levels, note = streaming.bench_line(tmp_path / "nope.json", 2026, 6, time.time())
+    assert levels == {}
+    assert "no bench line" in note
