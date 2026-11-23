@@ -317,12 +317,6 @@ BODY = """
   </tr></thead><tbody id="money"></tbody></table>
  </section>
 
- <section class="pt-panel" id="firstpanel" hidden>
-  <header>New blood<span class="sub">a first-time champion</span></header>
-  <div class="pt-mono-label" id="firsthead"></div>
-  <div class="first" id="first"></div>
- </section>
-
  <section class="pt-panel" id="moverspanel" hidden>
   <header>Movers<span class="sub" id="moversub">last 24 hours</span></header>
   <div class="movers" id="movers"></div>
@@ -365,6 +359,12 @@ BODY = """
   <header>Jack vs Olly<span class="sub" id="agreesub"></span></header>
   <div id="agree"></div>
   <details class="agree-tbl"><summary>table</summary><div id="agreetbl"></div></details>
+ </section>
+
+ <section class="pt-panel" id="firstpanel" hidden>
+  <header>New blood<span class="sub">a first-time champion</span></header>
+  <div class="pt-mono-label" id="firsthead"></div>
+  <div class="first" id="first"></div>
  </section>
 
  <div class="ticker" id="ticker" hidden>
