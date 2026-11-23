@@ -158,6 +158,16 @@ section{margin-bottom:12px;}
 .crows th.pl{text-align:right;padding-right:5px;}
 .crows tr:nth-child(even) td{background:color-mix(in srgb,var(--text-primary) 4%,transparent);}
 .crows .mv{font-size:var(--fs-tiny);}
+.pathpick{width:100%;background:var(--surface-2);color:var(--text-primary);
+  border:var(--border);border-radius:var(--radius);padding:7px 8px;
+  font-family:var(--font-mono);font-size:var(--fs-body);}
+.pathodds{font-family:var(--font-mono);font-size:var(--fs-mega);line-height:1.1;
+  padding:10px 0 0;font-variant-numeric:tabular-nums;}
+.pathodds .lab{display:block;font-size:var(--fs-tiny);color:var(--text-muted);
+  letter-spacing:.08em;}
+.pathtext{color:var(--text-secondary);font-size:var(--fs-body);line-height:1.6;
+  margin:6px 0 0;}
+.pathtext b{color:var(--text-primary);}
 .first{margin-top:6px;}
 .first .frow{display:flex;align-items:baseline;gap:8px;padding:3px 2px;
   border-bottom:1px solid var(--grid);}
@@ -359,6 +369,13 @@ BODY = """
   <header>Jack vs Olly<span class="sub" id="agreesub"></span></header>
   <div id="agree"></div>
   <details class="agree-tbl"><summary>table</summary><div id="agreetbl"></div></details>
+ </section>
+
+ <section class="pt-panel" id="pathpanel" hidden>
+  <header>How they win it<span class="sub">pick a team</span></header>
+  <select id="pathpick" class="pathpick"></select>
+  <div class="pathodds" id="pathodds"></div>
+  <p class="pathtext" id="pathtext"></p>
  </section>
 
  <section class="pt-panel" id="firstpanel" hidden>
@@ -732,6 +749,7 @@ function paint(){
   var top = shame[0].p_shame || 1;
   el("gradegrid").innerHTML = gradeGrid(params.teams);
   renderBench(params);
+  renderPath(result, params);
   renderFirst(result);
   renderCommishRows();
   renderAgree(result);
@@ -996,6 +1014,117 @@ function gradeClass(g){
   var c = String(g || "").charAt(0);
   return c === "A" ? "gA" : c === "B" ? "gB" : c === "C" ? "gC"
        : c === "D" ? "gD" : c === "F" ? "gF" : "";
+}
+
+/* ---- how they win it -------------------------------------------------------
+   One paragraph per team, BUILT FROM THE SIMULATION rather than written. Every
+   number in the sentence comes out of the same twenty thousand seasons the money
+   table is priced from, so the story cannot drift from the odds beside it -- and
+   nothing here is invented, which is the only way a "storyline" belongs on a
+   page that otherwise reports measurements.
+
+   The decomposition is the point. A title needs two separate things to happen:
+   get into the top four, then win the bracket. Those are very different problems
+   and the single champ% hides which one a team actually has. Jack at 27% is a
+   near-lock who has to convert; Jakes at 0.1% is a man who needs to get in at
+   all. So the paragraph always names both, and the conditional rate
+   (champ / playoffs) is the part that says whether they would be dangerous once
+   they arrive. */
+var PATH_SEL = null;
+
+/* pct() to no decimals turns 99.6% into a flat "100%", which is a promise the
+   simulation never made. Nothing here claims certainty it does not have. */
+function nearly(v){
+  if(v >= 0.995) return "&gt;99%";
+  if(v > 0 && v < 0.005) return "&lt;1%";
+  return pct(v, 0);
+}
+
+function pathStory(t, params, result_n_sims){
+  var W = params.reg_season_weeks, done = params.current_week - 1;
+  var left = Math.max(0, W - done);
+  var inOdds = t.p_playoffs, champ = t.p_champ;
+  var given = inOdds > 0.005 ? champ / inOdds : 0;
+  var wins = t.exp_wins, st = t.stakes;
+  var bits = [];
+
+  /* where he stands */
+  bits.push("<b>" + esc(t.name || t.abbrev) + "</b> finishes the regular season " +
+    "around <b>" + wins.toFixed(1) + "-" + (W - wins).toFixed(1) + "</b> on these " +
+    "projections, with " + left + " week" + (left === 1 ? "" : "s") + " left.");
+
+  /* gate one: getting in */
+  if(inOdds >= 0.9)
+    bits.push("He is effectively <b>already in</b> &mdash; " + pct(inOdds) +
+      " to make the top four &mdash; so his season is not about qualifying.");
+  else if(inOdds >= 0.5)
+    bits.push("He gets into the top four <b>" + pct(inOdds) + "</b> of the time, " +
+      "which means holding serve rather than chasing.");
+  else if(inOdds >= 0.12)
+    bits.push("The gate is the top four, and he clears it only <b>" + pct(inOdds) +
+      "</b> of the time &mdash; he needs results above his projection, and some help.");
+  else if(inOdds >= 0.005)
+    bits.push("He makes the top four in just <b>" + pct(inOdds) + "</b> of seasons, " +
+      "so the path starts with running the table and waiting on other people's losses.");
+  else
+    /* "0.0% of seasons, so the path starts with running the table" argues with
+       itself. When the sim finds no way in at all, say that instead. */
+    bits.push("He does not reach the top four in <b>any</b> of the " +
+      (result_n_sims || 20000).toLocaleString() + " seasons simulated.");
+
+  /* this week's leverage, straight from the split simulations */
+  if(st && st.playoffs_win !== undefined){
+    var swing = st.playoffs_win - st.playoffs_lose;
+    if(swing > 0.08)
+      bits.push("Week " + st.week + " is the hinge: win it and his playoff odds go " +
+        "<b>" + nearly(st.playoffs_lose) + " &rarr; " + nearly(st.playoffs_win) + "</b>.");
+  }
+
+  /* gate two: converting. The clause has to agree with gate one -- the first cut
+     told a 0.9% team that "getting in is not the hard part", which is exactly
+     backwards: getting in is the ONLY hard part for him. So the framing is
+     chosen by how the two gates sit together, not by the conditional rate alone. */
+  if(champ < 0.005)
+    bits.push("Short of something these projections cannot see, this is not his year.");
+  else if(given >= 0.45)
+    bits.push("And he is the one nobody wants to draw &mdash; once in, he takes " +
+      "the Persy <b>" + pct(given) + "</b> of the time.");
+  else if(inOdds >= 0.5 && given < 0.25)
+    bits.push("Qualifying is not his problem, converting is &mdash; from the bracket " +
+      "he only wins it <b>" + pct(given) + "</b> of the time, because two weeks of " +
+      "semifinal outlast one good roster.");
+  else if(given >= 0.25)
+    bits.push("Once in, he wins it <b>" + pct(given) + "</b> of the time, which is " +
+      "roughly a fair share of a four-team bracket.");
+  else if(given > 0)
+    bits.push("And sneaking in would only be the start &mdash; he converts " +
+      "<b>" + pct(given) + "</b> of the brackets he reaches.");
+
+  return bits.join(" ");
+}
+
+function renderPath(result, params){
+  var teams = (result && result.teams) || [];
+  if(!teams.length) return;
+  var sorted = teams.slice().sort(function(a, b){ return b.p_champ - a.p_champ; });
+  if(PATH_SEL === null){
+    var us = sorted.filter(function(t){ return t.is_us; })[0];
+    PATH_SEL = (us || sorted[0]).team_id;
+  }
+  var sel = el("pathpick");
+  sel.innerHTML = sorted.map(function(t){
+    return '<option value="' + t.team_id + '"' +
+      (t.team_id === PATH_SEL ? " selected" : "") + ">" +
+      esc(t.abbrev) + " &middot; " + esc(shortName(t.owner)) +
+      " &middot; " + pct(t.p_champ) + "</option>";
+  }).join("");
+  sel.onchange = function(){ PATH_SEL = +sel.value; renderPath(result, params); };
+
+  var t = sorted.filter(function(x){ return x.team_id === PATH_SEL; })[0] || sorted[0];
+  el("pathodds").innerHTML = '<span class="lab">CHANCE HE WINS THE PERSY</span>' +
+    pct(t.p_champ);
+  el("pathtext").innerHTML = pathStory(t, params, result.n_sims);
+  el("pathpanel").hidden = false;
 }
 
 /* ---- a first-time champion -------------------------------------------------
