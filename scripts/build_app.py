@@ -1017,7 +1017,13 @@ var CHAMPS = {
   "Regan":     [2013, 2015, 2017],
   "Brabston":  [2009, 2023],
   "Kennedy":   [2018],
-  "Parrott":   [2024]
+  // 2016 was won as "GoAhead Eagles", which the standings file still files under
+  // the old handle SketchLayout. MP TOOK THE TEAM OVER in 2016 and counts from
+  // then on, so the account is two people: 2009-2015 belongs to whoever had it
+  // before him (2011's "Evanston's Heisman" included) and 2016 onwards is his.
+  // A handle is not an owner, which is the whole reason this list is keyed by
+  // hand rather than lifted from the standings.
+  "Parrott":   [2016, 2024]
 };
 
 function titlesFor(owner){
