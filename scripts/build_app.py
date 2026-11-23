@@ -158,6 +158,16 @@ section{margin-bottom:12px;}
 .crows th.pl{text-align:right;padding-right:5px;}
 .crows tr:nth-child(even) td{background:color-mix(in srgb,var(--text-primary) 4%,transparent);}
 .crows .mv{font-size:var(--fs-tiny);}
+.first{margin-top:6px;}
+.first .frow{display:flex;align-items:baseline;gap:8px;padding:3px 2px;
+  border-bottom:1px solid var(--grid);}
+.first .frow:last-child{border-bottom:0;}
+.first .frow.us .ab{color:var(--amber);}
+.first .ab{width:3.4em;font-weight:600;}
+.first .pc{width:3.6em;text-align:right;font-variant-numeric:tabular-nums;}
+.first .seeking{color:var(--text-secondary);font-size:var(--fs-small);}
+.first .held{color:var(--text-muted);font-size:var(--fs-small);}
+.first .frow.nv .pc{color:var(--up);}
 .bench td.rk{color:var(--text-muted);width:1.6em;text-align:right;}
 .bench td.tm{font-weight:600;}
 .bench tr.us td{background:color-mix(in srgb,var(--amber) 10%,transparent);}
@@ -305,6 +315,12 @@ BODY = """
     <th>Team</th><th class="pt-num">EV</th><th>Tape</th><th class="pt-num">Champ</th>
     <th class="pt-num hide-s">Money</th><th class="pt-num hide-s">Playoff</th><th class="pt-num">Plaque</th>
   </tr></thead><tbody id="money"></tbody></table>
+ </section>
+
+ <section class="pt-panel" id="firstpanel" hidden>
+  <header>New blood<span class="sub">a first-time champion</span></header>
+  <div class="pt-mono-label" id="firsthead"></div>
+  <div class="first" id="first"></div>
  </section>
 
  <section class="pt-panel" id="moverspanel" hidden>
@@ -716,6 +732,7 @@ function paint(){
   var top = shame[0].p_shame || 1;
   el("gradegrid").innerHTML = gradeGrid(params.teams);
   renderBench(params);
+  renderFirst(result);
   renderCommishRows();
   renderAgree(result);
   el("shame").innerHTML = shame.map(function(t){
@@ -979,6 +996,60 @@ function gradeClass(g){
   var c = String(g || "").charAt(0);
   return c === "A" ? "gA" : c === "B" ? "gB" : c === "C" ? "gC"
        : c === "D" ? "gD" : c === "F" ? "gF" : "";
+}
+
+/* ---- a first-time champion -------------------------------------------------
+   Seventeen seasons, eight different winners, and five of them are still in the
+   league. This panel asks the only question that makes a 0.1% team interesting:
+   does the trophy go somewhere it has never been?
+
+   The years are written down here because this repository has no history of its
+   own -- it prices the season in front of it. They are league facts everyone
+   already knows, they change at most once a year, and keeping them in one named
+   constant beats deriving them from a standings file this repo does not have.
+
+   Matched by surname against the owner name, with ONE exception that matters:
+   the league's standings call Gypsy by his own surname, Raizin, and ESPN calls
+   him Dirty Gypsy. Matching on either string finds nothing in the other, which
+   would have quietly counted a seven-time contender as a past winner. */
+var CHAMPS = {
+  "Glowacki":  [2020, 2021, 2022, 2025],
+  "Regan":     [2013, 2015, 2017],
+  "Brabston":  [2009, 2023],
+  "Kennedy":   [2018],
+  "Parrott":   [2024]
+};
+
+function titlesFor(owner){
+  var o = String(owner || "").toLowerCase();
+  for(var k in CHAMPS){ if(o.indexOf(k.toLowerCase()) >= 0) return CHAMPS[k]; }
+  return [];
+}
+
+function renderFirst(result){
+  var teams = (result && result.teams) || [];
+  if(!teams.length) return;
+  var rows = teams.map(function(t){
+    return {t: t, yrs: titlesFor(t.owner)};
+  }).sort(function(a, b){ return b.t.p_champ - a.t.p_champ; });
+
+  var fresh = rows.filter(function(r){ return !r.yrs.length; });
+  var p = fresh.reduce(function(a, r){ return a + r.t.p_champ; }, 0);
+
+  el("firsthead").innerHTML = '<b>' + pct(p) + '</b> chance the trophy goes ' +
+    'somewhere it has never been &mdash; ' + fresh.length + ' of ' + rows.length +
+    ' teams have never won.';
+  el("first").innerHTML = rows.map(function(r){
+    var tag = r.yrs.length
+      ? '<span class="held">' + r.yrs.length + '&times; &middot; ' +
+        r.yrs.join(", ") + '</span>'
+      : '<span class="seeking">never won</span>';
+    return '<div class="frow' + (r.t.is_us ? " us" : "") +
+      (r.yrs.length ? "" : " nv") + '">' +
+      '<span class="ab">' + esc(r.t.abbrev || shortName(r.t.owner)) + '</span>' +
+      '<span class="pc">' + pct(r.t.p_champ) + '</span>' + tag + '</div>';
+  }).join("");
+  el("firstpanel").hidden = false;
 }
 
 /* ---- the commissioner's rows ---------------------------------------------
