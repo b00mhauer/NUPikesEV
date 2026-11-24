@@ -1040,65 +1040,111 @@ function nearly(v){
   return pct(v, 0);
 }
 
-function pathStory(t, params, result_n_sims){
-  var W = params.reg_season_weeks, done = params.current_week - 1;
-  var left = Math.max(0, W - done);
+function pathStory(t, params, result_n_sims, byId){
+  var W = params.reg_season_weeks, cur = params.current_week;
   var inOdds = t.p_playoffs, champ = t.p_champ;
   var given = inOdds > 0.005 ? champ / inOdds : 0;
-  var wins = t.exp_wins, st = t.stakes;
-  var bits = [];
+  var core = t.core || [], bits = [];
+  var SEMI = [15, 16], FINAL = 17;
 
-  /* where he stands */
-  bits.push("<b>" + esc(t.name || t.abbrev) + "</b> finishes the regular season " +
-    "around <b>" + wins.toFixed(1) + "-" + (W - wins).toFixed(1) + "</b> on these " +
-    "projections, with " + left + " week" + (left === 1 ? "" : "s") + " left.");
+  /* --- the engine -----------------------------------------------------------
+     Who actually decides this team's season, by what he is projected to score
+     from here to the final -- not by reputation. */
+  if(core.length){
+    var a = core[0], b = core[1];
+    var sum = core.reduce(function(x, c){ return x + c.total; }, 0);
+    var topShare = sum > 0 ? (a.total + (b ? b.total : 0)) / sum : 0;
+    var perWk = a.total / Math.max(1, (FINAL - cur + 1));
+    bits.push("<b>" + esc(a.name) + "</b> (" + esc(a.pos) + ", " + esc(a.nfl) +
+      ") is the engine at about <b>" + perWk.toFixed(0) + " a week</b>" +
+      (b ? ", and with " + esc(shortName(b.name)) + " he is " +
+           pct(topShare, 0) + " of what this roster scores" : "") + ".");
+    /* Top scorer is a quarterback on essentially every roster, so leading with
+       him makes twelve stories open the same way. Name the best skill player
+       too -- that is the one that actually separates these teams. */
+    var named = [a.name, b ? b.name : ""];
+    var skill = core.filter(function(c){
+      return c.pos !== "QB" && named.indexOf(c.name) < 0; })[0];
+    if(a.pos === "QB" && skill)
+      bits.push("Everyone starts a quarterback though; the piece that separates " +
+        "him is <b>" + esc(skill.name) + "</b> (" + esc(skill.pos) + ", " +
+        esc(skill.nfl) + ").");
 
-  /* gate one: getting in */
-  if(inOdds >= 0.9)
-    bits.push("He is effectively <b>already in</b> &mdash; " + pct(inOdds) +
-      " to make the top four &mdash; so his season is not about qualifying.");
-  else if(inOdds >= 0.5)
-    bits.push("He gets into the top four <b>" + pct(inOdds) + "</b> of the time, " +
-      "which means holding serve rather than chasing.");
-  else if(inOdds >= 0.12)
-    bits.push("The gate is the top four, and he clears it only <b>" + pct(inOdds) +
-      "</b> of the time &mdash; he needs results above his projection, and some help.");
-  else if(inOdds >= 0.005)
-    bits.push("He makes the top four in just <b>" + pct(inOdds) + "</b> of seasons, " +
-      "so the path starts with running the table and waiting on other people's losses.");
-  else
-    /* "0.0% of seasons, so the path starts with running the table" argues with
-       itself. When the sim finds no way in at all, say that instead. */
-    bits.push("He does not reach the top four in <b>any</b> of the " +
-      (result_n_sims || 20000).toLocaleString() + " seasons simulated.");
-
-  /* this week's leverage, straight from the split simulations */
-  if(st && st.playoffs_win !== undefined){
-    var swing = st.playoffs_win - st.playoffs_lose;
-    if(swing > 0.08)
-      bits.push("Week " + st.week + " is the hinge: win it and his playoff odds go " +
-        "<b>" + nearly(st.playoffs_lose) + " &rarr; " + nearly(st.playoffs_win) + "</b>.");
+    /* Two of the top men on the SAME NFL club is a real risk and a real
+       upside, and it is invisible in any projection total. */
+    if(b && a.nfl && a.nfl === b.nfl)
+      bits.push("Both ride <b>" + esc(a.nfl) + "</b>, so his ceiling and his floor " +
+        "arrive on the same afternoon &mdash; one bad game script takes the pair of them.");
   }
 
-  /* gate two: converting. The clause has to agree with gate one -- the first cut
-     told a 0.9% team that "getting in is not the hard part", which is exactly
-     backwards: getting in is the ONLY hard part for him. So the framing is
-     chosen by how the two gates sit together, not by the conditional rate alone. */
+  /* --- the fantasy schedule still to come ---------------------------------- */
+  var rest = [];
+  (params.weeks || []).forEach(function(wk){
+    if(wk.week < cur || wk.state === "final") return;
+    (wk.matchups || []).forEach(function(m){
+      var foe = m.home === t.team_id ? m.away : (m.away === t.team_id ? m.home : null);
+      if(foe === null) return;
+      var o = byId[foe];
+      if(!o) return;
+      var lv = o.prior_weekly || {};
+      var keys = Object.keys(lv);
+      var avg = keys.length ? keys.reduce(function(x,k){ return x+lv[k]; },0)/keys.length : 0;
+      rest.push({week: wk.week, foe: o, level: avg});
+    });
+  });
+  if(rest.length){
+    rest.sort(function(x, y){ return y.level - x.level; });
+    var worst = rest[0], easiest = rest[rest.length - 1];
+    if(rest.length > 1 && worst.level - easiest.level > 4)
+      bits.push("The road out is <b>" + esc(worst.foe.abbrev) + " in week " +
+        worst.week + "</b> &mdash; the best team left on his card &mdash; with " +
+        esc(easiest.foe.abbrev) + " in week " + easiest.week + " the soft spot.");
+    else
+      bits.push("What is left of his schedule is flat: nobody on it is much " +
+        "better or worse than the rest.");
+  }
+
+  /* --- do the men who matter actually play in the bracket? ----------------- */
+  var byes = [], dips = [];
+  core.forEach(function(c){
+    SEMI.concat([FINAL]).forEach(function(w){
+      var v = (c.wk || {})[String(w)];
+      var opp = (c.opp || {})[String(w)];
+      if(!v && !opp) byes.push(shortName(c.name) + " (wk " + w + ")");
+    });
+    var semiAvg = SEMI.map(function(w){ return (c.wk||{})[String(w)] || 0; })
+                      .reduce(function(x,y){ return x+y; }, 0) / SEMI.length;
+    var base = c.total / Math.max(1, (FINAL - cur + 1));
+    if(base > 6 && semiAvg < base * 0.82)
+      dips.push(shortName(c.name) + " (" + esc(c.nfl) + ")");
+  });
+  if(byes.length)
+    bits.push("The bracket is the problem: <b>" + byes.join(", ") +
+      "</b> on a bye inside it.");
+  else if(dips.length)
+    bits.push("His semifinal weeks look thin for <b>" + dips.join(" and ") +
+      "</b> &mdash; the matchups turn against them in 15 and 16.");
+  else if(core.length){
+    /* NFL byes are over before the bracket starts, so "nobody rests" was true
+       of all twelve and said nothing. Name the actual fixtures instead. */
+    var e = core[0], f15 = (e.opp||{})["15"], f16 = (e.opp||{})["16"],
+        f17 = (e.opp||{})["17"];
+    if(f15 && f17)
+      bits.push("In the bracket, " + esc(e.nfl) + " draws <b>" + esc(f15) +
+        "</b> and <b>" + esc(f16) + "</b> in the semifinal weeks, then <b>" +
+        esc(f17) + "</b> with the Persy on it.");
+  }
+
+  /* --- and only then, the odds --------------------------------------------- */
   if(champ < 0.005)
-    bits.push("Short of something these projections cannot see, this is not his year.");
-  else if(given >= 0.45)
-    bits.push("And he is the one nobody wants to draw &mdash; once in, he takes " +
-      "the Persy <b>" + pct(given) + "</b> of the time.");
-  else if(inOdds >= 0.5 && given < 0.25)
-    bits.push("Qualifying is not his problem, converting is &mdash; from the bracket " +
-      "he only wins it <b>" + pct(given) + "</b> of the time, because two weeks of " +
-      "semifinal outlast one good roster.");
-  else if(given >= 0.25)
-    bits.push("Once in, he wins it <b>" + pct(given) + "</b> of the time, which is " +
-      "roughly a fair share of a four-team bracket.");
-  else if(given > 0)
-    bits.push("And sneaking in would only be the start &mdash; he converts " +
-      "<b>" + pct(given) + "</b> of the brackets he reaches.");
+    bits.push("None of which matters yet: the simulation does not find him a " +
+      "title in " + (result_n_sims || 20000).toLocaleString() + " seasons.");
+  else if(inOdds >= 0.9)
+    bits.push("He is <b>" + pct(inOdds, 0) + "</b> to reach the top four, and takes " +
+      "it from there <b>" + pct(given) + "</b> of the time.");
+  else
+    bits.push("He reaches the top four <b>" + pct(inOdds, 0) + "</b> of the time and " +
+      "wins it from there <b>" + pct(given) + "</b> of the time.");
 
   return bits.join(" ");
 }
@@ -1123,7 +1169,10 @@ function renderPath(result, params){
   var t = sorted.filter(function(x){ return x.team_id === PATH_SEL; })[0] || sorted[0];
   el("pathodds").innerHTML = '<span class="lab">CHANCE HE WINS THE PERSY</span>' +
     pct(t.p_champ);
-  el("pathtext").innerHTML = pathStory(t, params, result.n_sims);
+  var byId = {}; teams.forEach(function(x){ byId[x.team_id] = x; });
+  (params.teams || []).forEach(function(x){
+    byId[x.team_id] = Object.assign({}, byId[x.team_id] || {}, x); });
+  el("pathtext").innerHTML = pathStory(byId[t.team_id] || t, params, result.n_sims, byId);
   el("pathpanel").hidden = false;
 }
 

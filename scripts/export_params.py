@@ -40,6 +40,46 @@ PLAYOFF_WEEK = 99          # the optimizer's "no byes left" sentinel
 
 
 FLEX_POS = ("RB", "WR")
+CORE_N = 4
+LAST_WEEK = 17                 # the final; semis are 15-16
+
+
+def core_players(players, current, reg_weeks, scale, cal,
+                 pro_abbrev, nfl_opp, nfl_bye):
+    """The handful of men a team rides, with their remaining weeks attached.
+
+    Ranked by what they are projected to score from here to the final, not by
+    name recognition -- the point is who actually decides the season. Each one
+    carries his NFL club, his week-by-week projection and who that club plays,
+    so the storyline can name a real fixture instead of restating a number.
+    """
+    weeks = list(range(current, LAST_WEEK + 1))
+    rows = []
+    for p in players:
+        if p["pos"] in ("K", "DST") or p["on_ir"]:
+            continue
+        wk = {}
+        for w in weeks:
+            v = roster_strength.player_week(p, w, scale) * cal
+            if v:
+                wk[str(w)] = round(v, 1)
+        total = sum(wk.values())
+        if total <= 0:
+            continue
+        club = p.get("pro_team")
+        rows.append({
+            "name": p["name"], "pos": p["pos"],
+            "nfl": pro_abbrev.get(club, ""),
+            "bye": nfl_bye.get(club, 0),
+            "total": round(total, 1),
+            "wk": wk,
+            "opp": {str(w): nfl_opp.get((club, w), "") for w in weeks},
+        })
+    rows.sort(key=lambda r: -r["total"])
+    return rows[:CORE_N]
+
+
+
 
 
 def outprojects_a_starter(players: list[dict], man: dict, week: int,
@@ -83,6 +123,22 @@ def build(season: int) -> dict:
     # Defences join to other sources on their team's abbreviation, not their name
     # -- "Texans D/ST" here is "Houston D/ST" almost everywhere else.
     pro_abbrev = {t["id"]: t["abbrev"] for t in raw["proteams"]["settings"]["proTeams"]}
+
+    # Who each NFL team plays, week by week, and when it rests. The storyline
+    # panel needs this to say anything beyond a projection -- "Cook is his
+    # engine and Buffalo draws Miami in the semifinal" is a sentence about
+    # football; "Cook projects 17.2" is a sentence about a spreadsheet.
+    nfl_opp: dict[tuple[int, int], str] = {}
+    nfl_bye: dict[int, int] = {}
+    for t in raw["proteams"]["settings"]["proTeams"]:
+        nfl_bye[t["id"]] = int(t.get("byeWeek") or 0)
+        for wk, games in (t.get("proGamesByScoringPeriod") or {}).items():
+            for g in games:
+                home, away = g.get("homeProTeamId"), g.get("awayProTeamId")
+                if home is None or away is None:
+                    continue
+                foe, at = (away, "") if home == t["id"] else (home, "@")
+                nfl_opp[(t["id"], int(wk))] = at + pro_abbrev.get(foe, "?")
     for p in all_players:
         p["pro_team_abbrev"] = pro_abbrev.get(p["pro_team"], "")
     scale = roster_strength.rate_scale(all_players, current)
@@ -305,6 +361,12 @@ def build(season: int) -> dict:
             # opened the app. `sit` marks a benched player who out-projects
             # someone his manager is actually starting, which is the difference
             # between a strong bench and a neglected one.
+            # The three or four men a team actually rides, with the NFL
+            # schedule attached: enough for the storyline panel to talk about
+            # football rather than re-read the odds back to the reader. Capped
+            # at four so the payload stays small.
+            "core": core_players(players, current, reg_weeks, scale, b,
+                                 pro_abbrev, nfl_opp, nfl_bye),
             "bench": sorted(
                 (
                     {"name": p["name"], "pos": p["pos"],
