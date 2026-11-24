@@ -168,6 +168,19 @@ section{margin-bottom:12px;}
 .pathtext{color:var(--text-secondary);font-size:var(--fs-body);line-height:1.6;
   margin:6px 0 0;}
 .pathtext b{color:var(--text-primary);}
+.chatcol{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:6px 0 8px;}
+.chead{font-size:var(--fs-tiny);color:var(--up);letter-spacing:.08em;
+  padding-bottom:4px;border-bottom:1px solid var(--grid);}
+.chead.circus{color:var(--warning);}
+.srow{display:flex;align-items:baseline;gap:6px;padding:3px 0;font-size:var(--fs-small);}
+.srow .n{color:var(--text-muted);width:1.1em;}
+.srow .wk{font-weight:700;font-variant-numeric:tabular-nums;width:1.9em;text-align:right;}
+.srow .nm{color:var(--text-primary);flex:1;overflow:hidden;text-overflow:ellipsis;
+  white-space:nowrap;}
+.srow .yr{color:var(--text-muted);font-size:var(--fs-tiny);}
+.srow.on .wk{color:var(--amber);}
+.srow .onnow{color:var(--amber);}
+@media (max-width:360px){.chatcol{grid-template-columns:1fr;}}
 .first{margin-top:6px;}
 .first .frow{display:flex;align-items:baseline;gap:8px;padding:3px 2px;
   border-bottom:1px solid var(--grid);}
@@ -376,6 +389,17 @@ BODY = """
   <select id="pathpick" class="pathpick"></select>
   <div class="pathodds" id="pathodds"></div>
   <p class="pathtext" id="pathtext"></p>
+ </section>
+
+ <section class="pt-panel" id="chatpanel" hidden>
+  <header>The chats<span class="sub">longest unbroken runs, playoffs excluded</span></header>
+  <div class="chatcol">
+   <div><div class="chead">Winners chat</div><div id="chatW"></div></div>
+   <div><div class="chead circus">The Circus</div><div id="chatL"></div></div>
+  </div>
+  <div class="pt-mono-label">A winning record puts you in the Winners chat, a
+   losing one makes you a clown. Dead level is limbo &mdash; off both threads,
+   and the run ends. Membership carries over the offseason, so these span years.</div>
  </section>
 
  <section class="pt-panel" id="firstpanel" hidden>
@@ -749,6 +773,7 @@ function paint(){
   var top = shame[0].p_shame || 1;
   el("gradegrid").innerHTML = gradeGrid(params.teams);
   renderBench(params);
+  renderChats(params);
   renderPath(result, params);
   renderFirst(result);
   renderCommishRows();
@@ -1014,6 +1039,104 @@ function gradeClass(g){
   var c = String(g || "").charAt(0);
   return c === "A" ? "gA" : c === "B" ? "gB" : c === "C" ? "gC"
        : c === "D" ? "gD" : c === "F" ? "gF" : "";
+}
+
+/* ---- the chats -------------------------------------------------------------
+   Two text threads: a winning record puts you in the Winners chat, a losing one
+   puts you in the Circus with the other clowns. Exactly .500 is limbo -- off
+   both threads, and the streak ends there (MP's rule). Playoffs do not count,
+   and membership carries over the offseason: end week 14 in a chat and you are
+   still in it at week 1 next year, which is what makes these runs span seasons.
+
+   Everything through 2025 is settled history, computed once from seventeen
+   seasons of weekly results and frozen here. `carry` is each owner's live
+   streak at the end of 2025 week 14; the page walks this season's completed
+   weeks forward from it, so the board stays current without re-deriving the
+   archive the public repo does not hold.
+
+   One identity note, as with the champion roll: MP took the team over in 2016,
+   so weekly results before that under the old handle are not his. */
+var CHAT_HIST = {"through":2025,"W":[{"owner":"Glowacki","len":33,"from":[2018,1],"to":[2020,5]},{"owner":"Regan","len":28,"from":[2013,1],"to":[2014,14]},{"owner":"Brabston","len":25,"from":[2016,13],"to":[2018,9]},{"owner":"Jakes","len":21,"from":[2019,9],"to":[2021,1]},{"owner":"Glowacki","len":21,"from":[2022,11],"to":[2024,3]},{"owner":"Brabston","len":20,"from":[2009,5],"to":[2010,10]},{"owner":"daufford","len":19,"from":[2010,7],"to":[2011,11]},{"owner":"Rizzo","len":18,"from":[2020,11],"to":[2021,14]}],"L":[{"owner":"OConnor","len":29,"from":[2009,1],"to":[2011,1]},{"owner":"Krueger","len":29,"from":[2019,1],"to":[2021,1]},{"owner":"Jakes","len":28,"from":[2014,1],"to":[2015,14]},{"owner":"OConnor","len":28,"from":[2015,1],"to":[2016,14]},{"owner":"McQuiston","len":28,"from":[2017,1],"to":[2018,14]},{"owner":"Glowacki","len":24,"from":[2012,5],"to":[2013,14]},{"owner":"Goldner","len":23,"from":[2021,5],"to":[2022,13]},{"owner":"Jakes","len":17,"from":[2017,3],"to":[2018,5]}],"carry":{"McQuiston":{"side":"L","len":14},"Krueger":{"side":"W","len":10},"Kennedy":{"side":"L","len":8},"Brabston":{"side":"L","len":8},"Glowacki":{"side":"W","len":4},"OConnor":{"side":"-","len":0},"Dabrowski":{"side":"L","len":14},"Regan":{"side":"W","len":12},"Jakes":{"side":"-","len":0},"Rizzo":{"side":"L","len":4},"Parrott":{"side":"W","len":18},"Raizin":{"side":"-","len":0}}};
+var CHAT_ALIAS = {"Raizin": "Gypsy"};          // standings name -> ESPN name
+
+
+function chatStreaks(params){
+  /* Walk this season's SETTLED weeks forward from each owner's 2025 carry-in,
+     so a run that started years ago keeps counting and a new one can climb
+     onto the board mid-season. Unsettled weeks are skipped: a live week has no
+     record yet. */
+  var byId = {};
+  (params.teams || []).forEach(function(t){ byId[t.team_id] = t; });
+  var rec = {}, live = {};
+  (params.teams || []).forEach(function(t){
+    var hist = null;
+    for(var k in CHAT_HIST.carry){
+      var nm = CHAT_ALIAS[k] || k;
+      if(String(t.owner).toLowerCase().indexOf(nm.toLowerCase()) >= 0){
+        hist = CHAT_HIST.carry[k]; break;
+      }
+    }
+    rec[t.team_id] = [0, 0];
+    live[t.team_id] = hist ? {side: hist.side, len: hist.len, carried: hist.len}
+                           : {side: "-", len: 0, carried: 0};
+  });
+
+  (params.weeks || []).slice().sort(function(a,b){ return a.week-b.week; })
+    .forEach(function(wk){
+      if(wk.state !== "final") return;
+      (wk.matchups || []).forEach(function(m){
+        if(m.home_points === m.away_points) return;
+        var hw = m.home_points > m.away_points;
+        if(rec[m.home]) rec[m.home][hw ? 0 : 1]++;
+        if(rec[m.away]) rec[m.away][hw ? 1 : 0]++;
+      });
+      for(var id in rec){
+        var w = rec[id][0], l = rec[id][1];
+        var side = w > l ? "W" : (l > w ? "L" : "-");
+        var st = live[id];
+        if(side === "-"){ st.side = "-"; st.len = 0; }
+        else if(st.side === side){ st.len++; }
+        else { st.side = side; st.len = 1; }
+      }
+    });
+
+  /* merge any live run that outranks the archive */
+  var board = {W: CHAT_HIST.W.slice(), L: CHAT_HIST.L.slice()};
+  for(var id2 in live){
+    var st2 = live[id2], t2 = byId[id2];
+    if(!t2 || st2.side === "-" || !st2.len) continue;
+    board[st2.side] = board[st2.side].filter(function(r){
+      return !(st2.carried && r.to && r.to[0] === CHAT_HIST.through &&
+               String(t2.owner).toLowerCase().indexOf(
+                 (CHAT_ALIAS[r.owner] || r.owner).toLowerCase()) >= 0);
+    });
+    board[st2.side].push({owner: shortName(t2.owner), len: st2.len,
+                          to: null, live: true});
+  }
+  ["W","L"].forEach(function(k){
+    board[k].sort(function(a,b){ return b.len - a.len; });
+    board[k] = board[k].slice(0, 5);
+  });
+  return {board: board, live: live, byId: byId};
+}
+
+function renderChats(params){
+  var r = chatStreaks(params);
+  function list(side){
+    return r.board[side].map(function(x, i){
+      var when = x.live ? "<span class=\"onnow\">running now</span>"
+        : (x.from[0] === x.to[0] ? x.from[0]
+           : x.from[0] + "&ndash;" + x.to[0]);
+      return '<div class="srow' + (x.live ? " on" : "") + '">' +
+        '<span class="n">' + (i+1) + '</span>' +
+        '<span class="wk">' + x.len + '</span>' +
+        '<span class="nm">' + esc(x.owner) + '</span>' +
+        '<span class="yr">' + when + '</span></div>';
+    }).join("");
+  }
+  el("chatW").innerHTML = list("W");
+  el("chatL").innerHTML = list("L");
+  el("chatpanel").hidden = false;
 }
 
 /* ---- how they win it -------------------------------------------------------
