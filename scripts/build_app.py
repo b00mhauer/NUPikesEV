@@ -398,9 +398,6 @@ BODY = """
    <div><div class="chead">Winners chat</div><div id="chatW"></div></div>
    <div><div class="chead circus">The Circus</div><div id="chatL"></div></div>
   </div>
-  <div class="pt-mono-label">A winning record puts you in the Winners chat, a
-   losing one makes you a clown. Dead level is limbo &mdash; off both threads,
-   and the run ends. Membership carries over the offseason, so these span years.</div>
  </section>
 
  <section class="pt-panel" id="nowpanel" hidden>
@@ -409,7 +406,6 @@ BODY = """
    <div><div class="chead">Winners chat</div><div id="nowW"></div></div>
    <div><div class="chead circus">The Circus</div><div id="nowL"></div></div>
   </div>
-  <div id="nowLimbo"></div>
  </section>
 
  <section class="pt-panel" id="firstpanel" hidden>
@@ -1066,7 +1062,7 @@ function gradeClass(g){
 
    One identity note, as with the champion roll: MP took the team over in 2016,
    so weekly results before that under the old handle are not his. */
-var CHAT_HIST = {"through":2025,"W":[{"owner":"Glowacki","len":33,"from":[2018,1],"to":[2020,5]},{"owner":"Regan","len":28,"from":[2013,1],"to":[2014,14]},{"owner":"Brabston","len":25,"from":[2016,13],"to":[2018,9]},{"owner":"Jakes","len":21,"from":[2019,9],"to":[2021,1]},{"owner":"Glowacki","len":21,"from":[2022,11],"to":[2024,3]},{"owner":"Brabston","len":20,"from":[2009,5],"to":[2010,10]},{"owner":"daufford","len":19,"from":[2010,7],"to":[2011,11]},{"owner":"Rizzo","len":18,"from":[2020,11],"to":[2021,14]}],"L":[{"owner":"OConnor","len":29,"from":[2009,1],"to":[2011,1]},{"owner":"Krueger","len":29,"from":[2019,1],"to":[2021,1]},{"owner":"Jakes","len":28,"from":[2014,1],"to":[2015,14]},{"owner":"OConnor","len":28,"from":[2015,1],"to":[2016,14]},{"owner":"McQuiston","len":28,"from":[2017,1],"to":[2018,14]},{"owner":"Glowacki","len":24,"from":[2012,5],"to":[2013,14]},{"owner":"Goldner","len":23,"from":[2021,5],"to":[2022,13]},{"owner":"Jakes","len":17,"from":[2017,3],"to":[2018,5]}],"carry":{"McQuiston":{"side":"L","len":14},"Krueger":{"side":"W","len":10},"Kennedy":{"side":"L","len":8},"Brabston":{"side":"L","len":8},"Glowacki":{"side":"W","len":4},"OConnor":{"side":"-","len":0},"Dabrowski":{"side":"L","len":14},"Regan":{"side":"W","len":12},"Jakes":{"side":"-","len":0},"Rizzo":{"side":"L","len":4},"Parrott":{"side":"W","len":18},"Raizin":{"side":"-","len":0}}};
+var CHAT_HIST = {"through":2025,"W":[{"owner":"Glowacki","len":33,"from":[2018,1],"to":[2020,5]},{"owner":"Regan","len":28,"from":[2013,1],"to":[2014,14]},{"owner":"Brabston","len":25,"from":[2016,13],"to":[2018,9]},{"owner":"Jakes","len":21,"from":[2019,9],"to":[2021,1]},{"owner":"Glowacki","len":21,"from":[2022,11],"to":[2024,3]},{"owner":"Brabston","len":20,"from":[2009,5],"to":[2010,10]},{"owner":"daufford","len":19,"from":[2010,7],"to":[2011,11]},{"owner":"Rizzo","len":18,"from":[2020,11],"to":[2021,14]},{"owner":"Parrott","len":18,"from":[2024,11],"to":[2025,14]},{"owner":"SketchLayout","len":17,"from":[2011,3],"to":[2012,5]},{"owner":"Rizzo","len":17,"from":[2014,1],"to":[2015,3]},{"owner":"Jakes","len":17,"from":[2022,1],"to":[2023,3]},{"owner":"Regan","len":15,"from":[2021,1],"to":[2022,1]},{"owner":"Raizin","len":15,"from":[2021,1],"to":[2022,1]}],"L":[{"owner":"OConnor","len":29,"from":[2009,1],"to":[2011,1]},{"owner":"Krueger","len":29,"from":[2019,1],"to":[2021,1]},{"owner":"Jakes","len":28,"from":[2014,1],"to":[2015,14]},{"owner":"OConnor","len":28,"from":[2015,1],"to":[2016,14]},{"owner":"McQuiston","len":28,"from":[2017,1],"to":[2018,14]},{"owner":"Glowacki","len":24,"from":[2012,5],"to":[2013,14]},{"owner":"Goldner","len":23,"from":[2021,5],"to":[2022,13]},{"owner":"Jakes","len":17,"from":[2017,3],"to":[2018,5]},{"owner":"Dabrowski","len":17,"from":[2021,3],"to":[2022,5]},{"owner":"Parrott","len":17,"from":[2023,1],"to":[2024,3]},{"owner":"OConnor","len":15,"from":[2013,1],"to":[2014,1]},{"owner":"SketchLayout","len":15,"from":[2013,3],"to":[2014,3]},{"owner":"Raizin","len":15,"from":[2019,1],"to":[2020,1]},{"owner":"Kennedy","len":15,"from":[2021,1],"to":[2022,1]}],"carry":{"McQuiston":{"side":"L","len":14,"from":[2025,1]},"Krueger":{"side":"W","len":10,"from":[2025,5]},"Kennedy":{"side":"L","len":8,"from":[2025,7]},"Brabston":{"side":"L","len":8,"from":[2025,7]},"Glowacki":{"side":"W","len":4,"from":[2025,11]},"OConnor":{"side":"-","len":0,"from":null},"Dabrowski":{"side":"L","len":14,"from":[2025,1]},"Regan":{"side":"W","len":12,"from":[2025,3]},"Jakes":{"side":"-","len":0,"from":null},"Rizzo":{"side":"L","len":4,"from":[2025,11]},"Parrott":{"side":"W","len":18,"from":[2024,11]},"Raizin":{"side":"-","len":0,"from":null}}};
 var CHAT_ALIAS = {"Raizin": "Gypsy"};          // standings name -> ESPN name
 
 
@@ -1087,8 +1083,9 @@ function chatStreaks(params){
       }
     }
     rec[t.team_id] = [0, 0];
-    live[t.team_id] = hist ? {side: hist.side, len: hist.len, carried: hist.len}
-                           : {side: "-", len: 0, carried: 0};
+    live[t.team_id] = hist
+      ? {side: hist.side, len: hist.len, carried: hist.len, from: hist.from}
+      : {side: "-", len: 0, carried: 0, from: null};
   });
 
   (params.weeks || []).slice().sort(function(a,b){ return a.week-b.week; })
@@ -1104,9 +1101,9 @@ function chatStreaks(params){
         var w = rec[id][0], l = rec[id][1];
         var side = w > l ? "W" : (l > w ? "L" : "-");
         var st = live[id];
-        if(side === "-"){ st.side = "-"; st.len = 0; }
+        if(side === "-"){ st.side = "-"; st.len = 0; st.from = null; }
         else if(st.side === side){ st.len++; }
-        else { st.side = side; st.len = 1; }
+        else { st.side = side; st.len = 1; st.from = [CHAT_HIST.through + 1, wk.week]; }
       }
     });
 
@@ -1121,11 +1118,11 @@ function chatStreaks(params){
                  (CHAT_ALIAS[r.owner] || r.owner).toLowerCase()) >= 0);
     });
     board[st2.side].push({owner: shortName(t2.owner), len: st2.len,
-                          to: null, live: true});
+                          from: st2.from, to: null, live: true});
   }
   ["W","L"].forEach(function(k){
     board[k].sort(function(a,b){ return b.len - a.len; });
-    board[k] = board[k].slice(0, 5);
+    board[k] = board[k].slice(0, 10);
   });
   return {board: board, live: live, byId: byId};
 }
@@ -1134,9 +1131,11 @@ function renderChats(params){
   var r = chatStreaks(params);
   function list(side){
     return r.board[side].map(function(x, i){
-      var when = x.live ? "<span class=\"onnow\">running now</span>"
-        : (x.from[0] === x.to[0] ? x.from[0]
-           : x.from[0] + "&ndash;" + x.to[0]);
+      var yy = function(y){ return "&rsquo;" + String(y).slice(2); };
+      var when = x.live
+        ? '<span class="onnow">' + (x.from ? yy(x.from[0]) + "&ndash;now" : "now") + '</span>'
+        : (x.from[0] === x.to[0] ? yy(x.from[0])
+           : yy(x.from[0]) + "&ndash;" + yy(x.to[0]));
       return '<div class="srow' + (x.live ? " on" : "") + '">' +
         '<span class="n">' + (i+1) + '</span>' +
         '<span class="wk">' + x.len + '</span>' +
@@ -1162,24 +1161,13 @@ function renderChats(params){
     rows.sort(function(a, b){ return b.len - a.len; });
     if(!rows.length) return '<div class="srow"><span class="nm">&mdash;</span></div>';
     return rows.map(function(x){
-      var note = (x.carried && x.len > x.carried)
-        ? x.carried + " from last season" : "";
       return '<div class="srow' + (x.t.is_us ? " us" : "") + '">' +
         '<span class="wk">' + x.len + '</span>' +
-        '<span class="nm">' + esc(x.t.abbrev) + '</span>' +
-        '<span class="yr">' + note + '</span></div>';
+        '<span class="nm">' + esc(x.t.abbrev) + '</span></div>';
     }).join("");
   }
   el("nowW").innerHTML = now("W");
   el("nowL").innerHTML = now("L");
-  var limbo = [];
-  for(var id3 in r.live)
-    if(r.live[id3].side === "-" && r.byId[id3]) limbo.push(r.byId[id3].abbrev);
-  el("nowLimbo").innerHTML = limbo.length
-    ? '<div class="pt-mono-label">Dead level, so on neither thread: <b>' +
-      limbo.map(esc).join(", ") + '</b>.</div>'
-    : '<div class="pt-mono-label">Nobody is sitting level &mdash; all twelve are ' +
-      'on one thread or the other.</div>';
   el("nowpanel").hidden = false;
 }
 
