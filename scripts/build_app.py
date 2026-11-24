@@ -179,6 +179,7 @@ section{margin-bottom:12px;}
   white-space:nowrap;}
 .srow .yr{color:var(--text-muted);font-size:var(--fs-tiny);}
 .srow.on .wk{color:var(--amber);}
+.srow.us .nm{color:var(--amber);}
 .srow .onnow{color:var(--amber);}
 @media (max-width:360px){.chatcol{grid-template-columns:1fr;}}
 .first{margin-top:6px;}
@@ -400,6 +401,15 @@ BODY = """
   <div class="pt-mono-label">A winning record puts you in the Winners chat, a
    losing one makes you a clown. Dead level is limbo &mdash; off both threads,
    and the run ends. Membership carries over the offseason, so these span years.</div>
+ </section>
+
+ <section class="pt-panel" id="nowpanel" hidden>
+  <header>Who is in right now<span class="sub">weeks on the current thread</span></header>
+  <div class="chatcol">
+   <div><div class="chead">Winners chat</div><div id="nowW"></div></div>
+   <div><div class="chead circus">The Circus</div><div id="nowL"></div></div>
+  </div>
+  <div id="nowLimbo"></div>
  </section>
 
  <section class="pt-panel" id="firstpanel" hidden>
@@ -1137,6 +1147,40 @@ function renderChats(params){
   el("chatW").innerHTML = list("W");
   el("chatL").innerHTML = list("L");
   el("chatpanel").hidden = false;
+
+  /* Same walk, different question: not the longest runs ever but how long each
+     of the twelve has been sitting where it is now. A carried note matters --
+     two weeks that began last season is a different thing from two weeks that
+     began this one. */
+  function now(side){
+    var rows = [];
+    for(var id in r.live){
+      var st = r.live[id], t = r.byId[id];
+      if(!t || st.side !== side) continue;
+      rows.push({t: t, len: st.len, carried: st.carried});
+    }
+    rows.sort(function(a, b){ return b.len - a.len; });
+    if(!rows.length) return '<div class="srow"><span class="nm">&mdash;</span></div>';
+    return rows.map(function(x){
+      var note = (x.carried && x.len > x.carried)
+        ? x.carried + " from last season" : "";
+      return '<div class="srow' + (x.t.is_us ? " us" : "") + '">' +
+        '<span class="wk">' + x.len + '</span>' +
+        '<span class="nm">' + esc(x.t.abbrev) + '</span>' +
+        '<span class="yr">' + note + '</span></div>';
+    }).join("");
+  }
+  el("nowW").innerHTML = now("W");
+  el("nowL").innerHTML = now("L");
+  var limbo = [];
+  for(var id3 in r.live)
+    if(r.live[id3].side === "-" && r.byId[id3]) limbo.push(r.byId[id3].abbrev);
+  el("nowLimbo").innerHTML = limbo.length
+    ? '<div class="pt-mono-label">Dead level, so on neither thread: <b>' +
+      limbo.map(esc).join(", ") + '</b>.</div>'
+    : '<div class="pt-mono-label">Nobody is sitting level &mdash; all twelve are ' +
+      'on one thread or the other.</div>';
+  el("nowpanel").hidden = false;
 }
 
 /* ---- how they win it -------------------------------------------------------
